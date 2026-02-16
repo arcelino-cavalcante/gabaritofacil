@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { salvarNota, listarAlunosPorTurma } from '../db';
 import { useModal } from '../contexts/ModalContext';
+import { OMRService } from '../services/OMRService';
 
 // Icons
 const Icons = {
@@ -16,21 +17,34 @@ const Scanner = ({ gabarito, onBack }) => {
     const [resultado, setResultado] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [alunos, setAlunos] = useState([]);
-    const [scanLine, setScanLine] = useState(false); // Animação de scan
+    const [cvLoaded, setCvLoaded] = useState(false);
+    const [statusMessage, setStatusMessage] = useState("Inicializando inteligência...");
 
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
+    const processingRef = useRef(false);
+    const detectingRef = useRef(false);
 
     useEffect(() => {
-        iniciarCamera();
+        // Carregar OpenCV e Alunos
+        const checkOpenCV = setInterval(() => {
+            if (window.cv && window.cv.Mat) {
+                clearInterval(checkOpenCV);
+                setCvLoaded(true);
+                setStatusMessage("Câmera pronta via OpenCV");
+                iniciarCamera();
+            }
+        }, 500);
+
         if (gabarito.tipo === 'nominal' && gabarito.turmaId) {
             carregarAlunos();
         }
-        return () => pararCamera();
-    }, []);
 
-    // ... (Lógica de câmera, processamento e salvamento mantida igual ao step anterior) ...
-    // Vou resumir a lógica para focar na UI, mas garantindo que funcione.
+        return () => {
+            clearInterval(checkOpenCV);
+            pararCamera();
+        };
+    }, []);
 
     const carregarAlunos = async () => {
         try {
@@ -41,48 +55,170 @@ const Scanner = ({ gabarito, onBack }) => {
 
     const iniciarCamera = async () => {
         try {
-            const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
+            const constraints = {
+                video: {
+                    facingMode: 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
             const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
             setStream(mediaStream);
-            if (videoRef.current) videoRef.current.srcObject = mediaStream;
-            // Inicia animação de scan após 1s
-            setTimeout(() => setScanLine(true), 1000);
+
+            if (videoRef.current) {
+                videoRef.current.srcObject = mediaStream;
+                videoRef.current.onloadedmetadata = () => {
+                    videoRef.current.play();
+                    requestAnimationFrame(detectarDocumentoLoop);
+                };
+            }
+            setStatusMessage("Enquadre o Gabarito");
         } catch (err) {
             console.error(err);
-            await showAlert("Erro ao acessar câmera.");
+            setStatusMessage("Erro: " + err.message);
+            await showAlert("Erro ao acessar câmera. Verifique permissões.");
         }
     };
 
     const pararCamera = () => {
-        if (stream) stream.getTracks().forEach(track => track.stop());
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+        processingRef.current = false;
     };
 
-    const capturarEProcessar = () => {
-        if (!videoRef.current) return;
-        setIsProcessing(true);
-        setScanLine(false); // Pausa animação
+    // Loop visual: Desenha contornos em tempo real (Feedback Visual)
+    const detectingLoopId = useRef(null);
+    const detectarDocumentoLoop = () => {
+        if (!videoRef.current || !canvasRef.current || !window.cv || resultado || processingRef.current) return;
 
-        // Simulação de processamento
-        setTimeout(() => {
-            // Lógica simulada de resultado (igual ao anterior para demo)
+        // Limita FPS (processa a cada ~100ms)
+        if (detectingRef.current) {
+            detectingLoopId.current = requestAnimationFrame(detectarDocumentoLoop);
+            return;
+        }
+
+        detectingRef.current = true;
+        try {
+            const cv = window.cv;
+            const video = videoRef.current;
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+                let cap = new cv.VideoCapture(video);
+                cap.read(src);
+
+                let gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
+                cv.Canny(gray, gray, 75, 200);
+
+                let contours = new cv.MatVector();
+                let hierarchy = new cv.Mat();
+                cv.findContours(gray, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                let maxArea = 0;
+                let foundContour = null;
+
+                for (let i = 0; i < contours.size(); ++i) {
+                    let cnt = contours.get(i);
+                    let area = cv.contourArea(cnt);
+                    if (area > 5000) {
+                        let peri = cv.arcLength(cnt, true);
+                        let approx = new cv.Mat();
+                        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+
+                        if (approx.rows === 4 && area > maxArea) {
+                            maxArea = area;
+                            foundContour = approx;
+                        } else {
+                            approx.delete();
+                        }
+                    }
+                }
+
+                if (foundContour) {
+                    ctx.strokeStyle = '#00ff00'; // Verde
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+
+                    let data = foundContour.data32S;
+                    ctx.moveTo(data[0], data[1]);
+                    ctx.lineTo(data[2], data[3]);
+                    ctx.lineTo(data[4], data[5]);
+                    ctx.lineTo(data[6], data[7]);
+                    ctx.closePath();
+                    ctx.stroke();
+
+                    foundContour.delete();
+                }
+
+                src.delete(); gray.delete(); contours.delete(); hierarchy.delete();
+            }
+        } catch (e) {
+            console.error(e);
+        }
+        detectingRef.current = false;
+        if (!resultado && !isProcessing) {
+            detectingLoopId.current = requestAnimationFrame(detectarDocumentoLoop);
+        }
+    };
+
+    const capturarEProcessar = async () => {
+        if (!videoRef.current || !window.cv) return;
+        setIsProcessing(true);
+        processingRef.current = true; // Stop visual loop
+        cancelAnimationFrame(detectingLoopId.current);
+        setStatusMessage("Processando respostas...");
+
+        try {
+            // Real OMR Processing
+            const video = videoRef.current;
+
+            // Call the service with the video element and gabarito data
+            const result = await OMRService.scanAndRead(video, gabarito);
+
+            // Calculate score
             let acertos = 0;
             const total = gabarito.questoes.length;
             const detalhesErros = [];
 
-            gabarito.questoes.forEach(q => {
-                const isCorrect = Math.random() > 0.3;
-                if (isCorrect) acertos++;
-                else detalhesErros.push({ ...q, respostaAluno: q.correct === 'A' ? 'B' : 'A' });
+            result.answers.forEach(q => {
+                if (q.read === q.correct) {
+                    acertos++;
+                } else {
+                    detalhesErros.push({
+                        ...q,
+                        respostaAluno: q.read || 'Em branco' // Show what was read
+                    });
+                }
             });
 
             const nota = Math.round((acertos / total) * 10);
             const resFinal = { acertos, total, nota, detalhesErros };
 
             setResultado(resFinal);
-            setIsProcessing(false);
+            setStatusMessage("Correção finalizada com sucesso!");
             if (gabarito.tipo === 'nominal') salvarSeNominal(resFinal);
 
-        }, 800);
+        } catch (err) {
+            console.error(err);
+            setStatusMessage("Erro: " + err.message);
+            await showAlert("Falha ao ler gabarito: " + err.message);
+            // Resume detection if failed
+            processingRef.current = false;
+            setIsProcessing(false);
+            detectingLoopId.current = requestAnimationFrame(detectarDocumentoLoop);
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     const salvarSeNominal = async (res) => {
@@ -100,140 +236,163 @@ const Scanner = ({ gabarito, onBack }) => {
         }
     };
 
+    const reiniciar = () => {
+        setResultado(null);
+        setIsProcessing(false);
+        processingRef.current = false;
+        setStatusMessage("Enquadre o Gabarito");
+        requestAnimationFrame(detectarDocumentoLoop);
+    };
+
     return (
         <div className="fixed inset-0 bg-black z-50 flex flex-col font-sans">
-            {/* Camera View */}
-            <div className="relative flex-1 bg-black overflow-hidden">
-                <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="absolute inset-0 w-full h-full object-cover"
-                />
+            {/* Viewfinder Area */}
+            <div className="relative flex-1 bg-neutral-900 overflow-hidden flex flex-col items-center justify-center">
 
-                {/* Scan Line Animation */}
-                {scanLine && !resultado && (
-                    <div className="absolute left-0 right-0 h-0.5 bg-orange-400 shadow-[0_0_15px_rgba(52,211,153,0.8)] animate-scan opacity-70"></div>
+                {/* Loader Inicial */}
+                {!cvLoaded && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/90 text-white gap-4">
+                        <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="font-medium animate-pulse">Carregando IA de Visão...</p>
+                    </div>
                 )}
 
-                {/* Overlay Interface (Glassmorphism) */}
-                <div className="absolute inset-0 flex flex-col justify-between p-6 safe-top safe-bottom z-10">
+                {/* Video & Canvas Overlay */}
+                <div className="relative w-full h-full max-w-lg aspect-[3/4]">
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <canvas
+                        ref={canvasRef}
+                        className="absolute inset-0 w-full h-full pointer-events-none"
+                    />
+
+                    {/* Linha de Scan (só aparece procassando) */}
+                    {isProcessing && (
+                        <div className="absolute left-0 right-0 top-0 h-1 bg-orange-500 shadow-[0_0_20px_rgba(249,115,22,1)] animate-scan z-20"></div>
+                    )}
+                </div>
+
+                {/* UI Overlay */}
+                <div className="absolute inset-0 flex flex-col justify-between p-6 safe-top safe-bottom z-10 pointer-events-none">
 
                     {/* Top Bar */}
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center pointer-events-auto">
                         <button
                             onClick={onBack}
-                            className="w-10 h-10 bg-black/20 backdrop-blur-md border border-white/10 text-white rounded-full flex items-center justify-center hover:bg-black/40 transition-all"
+                            className="w-10 h-10 bg-black/40 backdrop-blur-md border border-white/20 text-white rounded-full flex items-center justify-center hover:bg-black/60 transition-all"
                         >
                             <Icons.X />
                         </button>
-
-                        <div className="bg-black/30 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
-                            <span className="text-white text-sm font-medium tracking-wide">{gabarito.nome}</span>
+                        <div className="bg-black/60 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 shadow-lg">
+                            <span className="text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${cvLoaded ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
+                                {statusMessage}
+                            </span>
                         </div>
-
-                        <div className="w-10"></div> {/* Spacer */}
+                        <div className="w-10"></div>
                     </div>
 
-                    {/* Viewfinder Frame */}
+                    {/* Botão de Captura */}
                     {!resultado && (
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="w-[85%] aspect-[3/4] border border-white/20 rounded-3xl relative">
-                                {/* Cantos Brilhantes */}
-                                <div className="absolute -top-0.5 -left-0.5 w-8 h-8 border-t-4 border-l-4 border-orange-500 rounded-tl-xl shadow-sm"></div>
-                                <div className="absolute -top-0.5 -right-0.5 w-8 h-8 border-t-4 border-r-4 border-orange-500 rounded-tr-xl shadow-sm"></div>
-                                <div className="absolute -bottom-0.5 -left-0.5 w-8 h-8 border-b-4 border-l-4 border-orange-500 rounded-bl-xl shadow-sm"></div>
-                                <div className="absolute -bottom-0.5 -right-0.5 w-8 h-8 border-b-4 border-r-4 border-orange-500 rounded-br-xl shadow-sm"></div>
-
-                                <p className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-sm font-medium drop-shadow-md">
-                                    Enquadre o gabarito
-                                </p>
-                            </div>
+                        <div className="flex justify-center pb-8 pt-4 pointer-events-auto">
+                            <button
+                                onClick={capturarEProcessar}
+                                disabled={isProcessing || !cvLoaded}
+                                className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${isProcessing
+                                    ? 'bg-white/10 border-4 border-white/20 scale-90'
+                                    : 'bg-white hover:scale-105 active:scale-95 ring-4 ring-white/50'
+                                    }`}
+                            >
+                                <div className="w-16 h-16 rounded-full border-2 border-black/10 bg-gradient-to-br from-neutral-100 to-white flex items-center justify-center">
+                                    <Icons.Camera />
+                                </div>
+                            </button>
                         </div>
                     )}
-
-                    {/* Bottom Controls */}
-                    <div className="flex justify-center pb-8 pt-4">
-                        <button
-                            onClick={capturarEProcessar}
-                            disabled={isProcessing || resultado}
-                            className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${isProcessing
-                                    ? 'bg-white/10 border-4 border-white/20 scale-90'
-                                    : 'bg-white hover:scale-105 active:scale-95 ring-4 ring-white/30'
-                                }`}
-                        >
-                            {isProcessing ? (
-                                <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            ) : (
-                                <div className="w-16 h-16 rounded-full border-2 border-black/10 bg-gradient-to-br from-neutral-100 to-white"></div>
-                            )}
-                        </button>
-                    </div>
                 </div>
             </div>
 
-            {/* Resultado (Modern Bottom Sheet) */}
+            {/* Resultado Bottom Sheet */}
             {resultado && (
                 <div className="absolute inset-x-0 bottom-0 z-50 flex items-end justify-center pointer-events-none">
                     <div className="w-full max-w-md pointer-events-auto animate-slideUp">
-                        <div className="bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.3)] overflow-hidden">
-                            {/* Header do Resultado */}
-                            <div className={`p-8 flex items-center justify-between ${resultado.nota >= 6 ? 'bg-gradient-to-r from-orange-500 to-orange-500' : 'bg-gradient-to-r from-neutral-900 to-black'}`}>
+                        <div className="bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)] overflow-hidden">
+
+                            {/* Header Nota */}
+                            <div className={`p-8 flex items-center justify-between ${resultado.nota >= 6 ? 'bg-gradient-to-br from-green-500 to-emerald-700' : 'bg-gradient-to-br from-red-500 to-orange-700'}`}>
                                 <div className="text-white">
                                     <p className="text-xs font-bold uppercase opacity-80 tracking-wider mb-1">Nota Final</p>
-                                    <h2 className="text-6xl font-black tracking-tighter shadow-sm">{resultado.nota}</h2>
+                                    <h2 className="text-7xl font-black tracking-tighter drop-shadow-md">{resultado.nota}</h2>
                                 </div>
                                 <div className="text-right text-white">
                                     <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/20 inline-block mb-2">
-                                        <span className="font-bold text-xl">{resultado.acertos}</span>
+                                        <span className="font-bold text-2xl">{resultado.acertos}</span>
                                         <span className="text-sm opacity-90 mx-1">/</span>
                                         <span className="text-sm opacity-90">{resultado.total}</span>
                                     </div>
-                                    <p className="text-sm font-medium opacity-90">Acertos</p>
+                                    <p className="text-sm font-medium opacity-90">Questões</p>
                                 </div>
                             </div>
 
-                            {/* Lista de Erros e Ações */}
-                            <div className="p-6 bg-white min-h-[200px] max-h-[50vh] overflow-y-auto">
+                            {/* Detalhes (Lista) */}
+                            <div className="p-0 bg-neutral-50 max-h-[50vh] overflow-y-auto">
                                 {resultado.detalhesErros.length > 0 ? (
-                                    <div className="space-y-3">
-                                        <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Correções Necessárias</h3>
+                                    <div className="divide-y divide-neutral-200">
                                         {resultado.detalhesErros.map((erro, idx) => (
-                                            <div key={idx} className="bg-white p-3 rounded-xl border border-neutral-200 flex justify-between items-center shadow-sm">
-                                                <span className="font-bold text-neutral-700">Questão {erro.id}</span>
-                                                <div className="flex items-center gap-3 bg-neutral-50 px-3 py-1 rounded-lg">
-                                                    <span className="text-neutral-500 font-bold line-through">{erro.respostaAluno || 'X'}</span>
+                                            <div key={idx} className="bg-white p-4 flex justify-between items-center group hover:bg-neutral-50 transition-colors">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold text-neutral-500 text-sm">
+                                                        {erro.id}
+                                                    </div>
+                                                    <span className="font-medium text-neutral-600">Questão {erro.id}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-[10px] uppercase text-neutral-300 font-bold mb-0.5">Aluno</span>
+                                                        <span className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center font-bold border border-red-200">
+                                                            {erro.respostaAluno || 'X'}
+                                                        </span>
+                                                    </div>
                                                     <span className="text-neutral-300">➜</span>
-                                                    <span className="text-orange-600 font-bold">{erro.correct}</span>
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-[10px] uppercase text-neutral-300 font-bold mb-0.5">Gabarito</span>
+                                                        <span className="w-8 h-8 rounded-lg bg-green-100 text-green-600 flex items-center justify-center font-bold border border-green-200 shadow-sm">
+                                                            {erro.correct}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="text-center py-8">
-                                        <div className="inline-flex p-4 rounded-full bg-orange-100 text-orange-600 mb-3">
+                                    <div className="flex flex-col items-center justify-center py-12 text-center text-neutral-500">
+                                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center text-green-600 mb-4">
                                             <Icons.Check />
                                         </div>
-                                        <h3 className="text-neutral-800 font-bold">Excelente!</h3>
-                                        <p className="text-neutral-500 text-sm">Nenhum erro encontrado.</p>
+                                        <h3 className="text-lg font-bold text-neutral-800">Perfeição!</h3>
+                                        <p className="text-sm">O aluno acertou todas as questões.</p>
                                     </div>
                                 )}
                             </div>
 
-                            {/* Botões de Ação Fixos */}
-                            <div className="p-4 bg-white border-t border-neutral-100 flex gap-3 safe-bottom">
+                            {/* Footer Actions */}
+                            <div className="p-4 bg-white border-t border-neutral-200 flex gap-3 safe-bottom shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-20 relative">
                                 <button
-                                    onClick={onBack}
-                                    className="flex-1 py-3.5 rounded-xl border border-neutral-200 font-bold text-neutral-600 hover:bg-white transition-colors"
+                                    onClick={onCloseResultado => { setResultado(null); processingRef.current = false; setIsProcessing(false); requestAnimationFrame(detectarDocumentoLoop); }}
+                                    className="flex-1 py-4 rounded-xl border border-neutral-200 font-bold text-neutral-600 hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
                                 >
-                                    Fechar
+                                    Refazer
                                 </button>
                                 <button
-                                    onClick={() => { setResultado(null); setScanLine(true); }}
-                                    className="flex-[2] py-3.5 rounded-xl bg-black text-white font-bold shadow-lg hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
+                                    onClick={reiniciar}
+                                    className="flex-[2] py-4 rounded-xl bg-neutral-900 text-white font-bold shadow-xl shadow-neutral-900/20 hover:bg-black active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                                 >
-                                    <Icons.Refresh /> Próxima
+                                    <Icons.Refresh /> Próximo
                                 </button>
                             </div>
                         </div>
