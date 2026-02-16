@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Gabarito Fácil - Correção Automática de Provas</title>
+
+    <!-- Tailwind CSS (via CDN for standalone visual fidelity) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        orange: {
+                            400: '#fb923c',
+                            500: '#f97316',
+                            600: '#ea580c',
+                            900: '#7c2d12',
+                            950: '#431407',
+                        },
+                        neutral: {
+                            800: '#262626',
+                            900: '#171717',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        bricolage: ['"Bricolage Grotesque"', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050505;
+            color: #ffffff;
+        }
+
+        /* Custom glow for the lightning card */
+        .electric-card {
+            box-shadow: 0 0 30px rgba(249, 115, 22, 0.3), inset 0 0 20px rgba(249, 115, 22, 0.1);
+        }
+
+        .electric-border {
+            background: linear-gradient(180deg, rgba(251, 146, 60, 1) 0%, rgba(251, 146, 60, 0) 100%);
+        }
+
+        /* Starry background effect */
+        .stars {
+            background-image:
+                radial-gradient(1px 1px at 20px 30px, #fff, rgba(0, 0, 0, 0)),
+                radial-gradient(1px 1px at 40px 70px, #ffffff, rgba(0, 0, 0, 0)),
+                radial-gradient(1px 1px at 50px 160px, #ffffff, rgba(0, 0, 0, 0)),
+                radial-gradient(1.5px 1.5px at 90px 40px, #ffffff, rgba(0, 0, 0, 0)),
+                radial-gradient(1px 1px at 130px 80px, #ffffff, rgba(0, 0, 0, 0));
+            background-size: 200px 200px;
+            opacity: 0.2;
+        }
+
+        /* Subtle grid background */
+        .grid-bg {
+            background-image: linear-gradient(to right, #ffffff05 1px, transparent 1px),
+                linear-gradient(to bottom, #ffffff05 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Animations */
+        @keyframes fadeInUpBlur {
+            0% {
+                opacity: 0;
+                transform: translateY(20px);
+                filter: blur(10px);
+            }
+
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+                filter: blur(0);
+            }
+        }
+
+        .animate-entry {
+            animation: fadeInUpBlur 1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+
+        .delay-75 {
+            animation-delay: 75ms;
+        }
+
+        .delay-100 {
+            animation-delay: 100ms;
+        }
+
+        .delay-150 {
+            animation-delay: 150ms;
+        }
+
+        .delay-200 {
+            animation-delay: 200ms;
+        }
+
+        .delay-300 {
+            animation-delay: 300ms;
+        }
+
+        .delay-500 {
+            animation-delay: 500ms;
+        }
+
+        @keyframes animationIn {
+            0% {
+                opacity: 0;
+                transform: translateY(30px);
+                filter: blur(8px);
+            }
+
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+                filter: blur(0px);
+            }
+        }
+
+        .animate-on-scroll {
+            opacity: 0;
+        }
+
+        .animate-on-scroll.animate {
+            animation: animationIn 0.8s ease-out 0.1s both;
+            opacity: 1;
+        }
+    </style>
+
+    <script>
+            (function () {
+                if (!window.__inViewIO) {
+                    window.__inViewIO = new IntersectionObserver((entries) => {
+                        entries.forEach((entry) => {
+                            if (entry.isIntersecting) {
+                                entry.target.classList.add("animate");
+                                window.__inViewIO.unobserve(entry.target);
+                            }
+                        });
+                    }, { threshold: 0.1 });
+                }
+                window.initInViewAnimations = function (selector = ".animate-on-scroll") {
+                    document.querySelectorAll(selector).forEach((el) => {
+                        window.__inViewIO.observe(el);
+                    });
+                };
+                document.addEventListener("DOMContentLoaded", () => {
+                    initInViewAnimations();
+                    lucide.createIcons();
+                });
+            })();
+    </script>
+</head>
+
+<body class="min-h-screen overflow-x-hidden selection:bg-orange-500/30 text-white bg-[#050505] relative">
+
+    <!-- Background -->
+    <div class="fixed z-0 pointer-events-none top-0 right-0 bottom-0 left-0">
+        <div class="stars absolute inset-0"></div>
+        <div
+            class="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-orange-900/10 blur-[120px] rounded-full">
+        </div>
+        <div class="absolute bottom-0 right-0 w-[600px] h-[600px] bg-orange-950/20 blur-[100px] rounded-full"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-[#050505]/80 backdrop-blur-md border-b border-white/5">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex gap-2 items-center">
+                    <div class="relative flex items-center justify-center w-8 h-8">
+                        <i data-lucide="scan-line" class="text-orange-500 w-8 h-8"></i>
+                    </div>
+                    <span class="text-xl text-white font-bricolage font-bold">Gabarito Fácil</span>
+                </div>
+                <div class="hidden md:flex items-center gap-6 text-sm text-neutral-400">
+                    <a href="#hero" class="hover:text-white transition-colors">Início</a>
+                    <a href="#features" class="hover:text-white transition-colors">Funcionalidades</a>
+                    <a href="#how-it-works" class="hover:text-white transition-colors">Como Funciona</a>
+                    <a href="#pricing" class="hover:text-white transition-colors">Preços</a>
+                </div>
+                <a href="/index.html"
+                    class="hidden md:block hover:brightness-110 transition-all text-sm text-white bg-gradient-to-b from-orange-400 to-orange-600 border-white/20 rounded-full border-t pt-2 pr-5 pb-2 pl-5 shadow-[0_0_15px_-3px_rgba(249,115,22,0.4)]">
+                    Acessar Sistema
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="hero" class="relative z-10 pt-20 pb-32 overflow-hidden">
+        <div class="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+
+            <div class="lg:col-span-7 flex flex-col items-start z-10">
+                <div
+                    class="mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 backdrop-blur-sm text-xs text-neutral-300 animate-entry delay-100">
+                    <i data-lucide="zap" class="w-3 h-3 text-orange-400"></i>
+                    <span>Correção via OMR em Segundos</span>
+                </div>
+
+                <h1
+                    class="text-4xl md:text-5xl lg:text-[76px] leading-[1.1] text-white mb-6 font-bricolage font-bold tracking-tight animate-entry delay-150">
+                    RECUPERE SEUS <br />
+                    <span class="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-yellow-200">FINAIS DE
+                        SEMANA</span>
+                </h1>
+
+                <p class="text-lg text-neutral-400 max-w-xl mb-10 leading-relaxed animate-entry delay-200">
+                    Pare de perder horas corrigindo pilhas de provas manualmente. Com o Gabarito Fácil, você corrige 100
+                    provas em minutos e volta a ter tempo para o que realmente importa.
+                </p>
+
+                <div class="flex flex-wrap gap-4 animate-entry delay-300">
+                    <a href="#pricing"
+                        class="group relative flex items-center justify-center gap-2.5 rounded-full bg-gradient-to-t from-yellow-200 via-orange-400 to-orange-500 px-8 py-3 text-lg font-medium text-[#2c1306] shadow-[0_0_40px_-5px_rgba(249,115,22,0.6)] ring-1 ring-inset ring-white/40 transition-all duration-300 hover:scale-105 hover:shadow-[0_0_60px_-5px_rgba(249,115,22,0.8)]">
+                        Quero Minha Vida de Volta
+                        <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                    </a>
+                    <a href="#how-it-works"
+                        class="px-8 py-3 rounded-full bg-white/10 text-white text-lg hover:bg-white/20 transition-colors border border-white/10 backdrop-blur-sm">
+                        Ver Como Funciona
+                    </a>
+                </div>
+            </div>
+
+            <div class="lg:col-span-5 relative z-10 animate-entry delay-500 flex justify-center">
+                <!-- Glowing Card Mockup -->
+                <div
+                    class="relative w-[340px] md:w-[400px] h-[500px] bg-neutral-900 rounded-[32px] p-[2px] electric-card">
+                    <div
+                        class="absolute inset-0 bg-gradient-to-b from-yellow-300 via-orange-500 to-transparent opacity-80 z-0 rounded-[32px]">
+                    </div>
+                    <div class="relative z-10 bg-[#0A0A0A] rounded-[30px] h-full overflow-hidden flex flex-col">
+                        <!-- Mockup Header -->
+                        <div class="h-14 border-b border-white/10 flex items-center px-6 justify-between bg-white/5">
+                            <div class="flex gap-2">
+                                <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                                <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                            </div>
+                            <div class="text-xs text-neutral-500">Gabarito Fácil App</div>
+                        </div>
+                        <!-- Mockup Body (Scanner Simulation) -->
+                        <div
+                            class="flex-1 relative bg-neutral-900 p-4 flex flex-col items-center justify-center overflow-hidden">
+                            <!-- Scanning Line -->
+                            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent shadow-[0_0_15px_rgba(249,115,22,0.8)] z-20 animate-[scan_3s_linear_infinite]"
+                                style="@keyframes scan { 0% {top:0} 50% {top:100%} 100% {top:0} }"></div>
+
+                            <!-- Card Content representing a specific exam result -->
+                            <div class="w-full bg-white/5 border border-white/10 rounded-xl p-4 mb-4 backdrop-blur-sm">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm font-medium text-white">Aluno: João Silva</span>
+                                    <span
+                                        class="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Aprovado</span>
+                                </div>
+                                <div class="flex items-baseline gap-2">
+                                    <span class="text-3xl font-bold text-white">9.5</span>
+                                    <span class="text-xs text-neutral-400">/ 10.0</span>
+                                </div>
+                                <div class="w-full bg-neutral-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                                    <div class="bg-green-500 h-full w-[95%]"></div>
+                                </div>
+                            </div>
+
+                            <div
+                                class="w-full bg-white/5 border border-white/10 rounded-xl p-4 backdrop-blur-sm opacity-60 scale-95">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm font-medium text-white">Aluno: Maria Costa</span>
+                                </div>
+                                <div class="flex items-baseline gap-2">
+                                    <span class="text-3xl font-bold text-white">8.0</span>
+                                    <span class="text-xs text-neutral-400">/ 10.0</span>
+                                </div>
+                            </div>
+
+                            <!-- Scanner UI Overlay -->
+                            <div
+                                class="absolute inset-x-8 inset-y-20 border-2 border-dashed border-orange-500/50 rounded-lg flex items-center justify-center pointer-events-none">
+                                <i data-lucide="scan" class="text-orange-500/50 w-12 h-12"></i>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- VSL Section (Video Sales Letter) -->
+    <section class="py-20 relative z-10">
+        <div class="max-w-5xl mx-auto px-6 text-center">
+            <div class="mb-10 animate-on-scroll">
+                <h2 class="text-3xl md:text-4xl text-white font-bricolage font-bold mb-4">
+                    Veja a <span class="text-orange-500">Mágica</span> Acontecer
+                </h2>
+                <p class="text-neutral-400">
+                    Imagine corrigir uma turma inteira enquanto toma seu café. É isso que o Gabarito Fácil faz por você.
+                </p>
+            </div>
+
+            <!-- Video Container -->
+            <div
+                class="relative w-full aspect-video rounded-2xl border border-white/10 bg-neutral-900 overflow-hidden shadow-[0_0_50px_-10px_rgba(249,115,22,0.2)] animate-on-scroll group cursor-pointer">
+                <!-- Placeholder Image / Poster -->
+                <div
+                    class="absolute inset-0 bg-neutral-800 flex items-center justify-center bg-[url('https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center opacity-50 group-hover:opacity-60 transition-opacity duration-500">
+                </div>
+
+                <!-- Overlay Gradient -->
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+
+                <!-- Play Button -->
+                <div class="absolute inset-0 flex items-center justify-center z-20">
+                    <div
+                        class="w-20 h-20 rounded-full bg-orange-500/90 flex items-center justify-center pl-1 shadow-[0_0_30px_rgba(249,115,22,0.6)] group-hover:scale-110 transition-transform duration-300 group-hover:bg-orange-500">
+                        <i data-lucide="play" class="w-8 h-8 text-white fill-white"></i>
+                    </div>
+                </div>
+
+                <!-- Floating Badge -->
+                <div
+                    class="absolute bottom-6 left-6 z-20 bg-black/60 backdrop-blur-md border border-white/10 px-4 py-2 rounded-lg flex items-center gap-3">
+                    <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                    <span class="text-sm font-medium text-white">Demonstração ao Vivo</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="border-y border-white/5 bg-white/[0.02]">
+        <div class="max-w-7xl mx-auto px-6 py-12 grid grid-cols-2 md:grid-cols-4 gap-8">
+            <div class="text-center animate-on-scroll">
+                <div class="text-4xl font-bricolage font-bold text-white mb-2">+10k</div>
+                <div class="text-sm text-neutral-400">Provas Corrigidas</div>
+            </div>
+            <div class="text-center animate-on-scroll" style="animation-delay: 100ms;">
+                <div class="text-4xl font-bricolage font-bold text-white mb-2">99.9%</div>
+                <div class="text-sm text-neutral-400">Precisão</div>
+            </div>
+            <div class="text-center animate-on-scroll" style="animation-delay: 200ms;">
+                <div class="text-4xl font-bricolage font-bold text-white mb-2">0s</div>
+                <div class="text-sm text-neutral-400">Delay (Offline)</div>
+            </div>
+            <div class="text-center animate-on-scroll" style="animation-delay: 300ms;">
+                <div class="text-4xl font-bricolage font-bold text-white mb-2">24h</div>
+                <div class="text-sm text-neutral-400">Disponibilidade</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-24 relative z-10">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="mb-16 text-center max-w-2xl mx-auto">
+                <h2
+                    class="text-4xl md:text-5xl text-white font-bricolage font-light tracking-tight mb-4 animate-on-scroll">
+                    Funcionalidades <span class="text-orange-500">Pensadas para Você</span>
+                </h2>
+                <p class="text-lg text-neutral-400 leading-relaxed font-sans animate-on-scroll">
+                    Cada detalhe foi criado para eliminar o estresse e a burocracia do seu dia a dia escolar.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <!-- Feature 1 -->
+                <div
+                    class="p-8 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors animate-on-scroll group">
+                    <div
+                        class="w-12 h-12 rounded-lg bg-orange-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i data-lucide="camera" class="text-orange-500 w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Leitura via Câmera</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm">
+                        Utilize a câmera do seu celular ou computador para escanear os gabaritos instantaneamente com
+                        alta precisão.
+                    </p>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="p-8 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors animate-on-scroll group"
+                    style="animation-delay: 100ms;">
+                    <div
+                        class="w-12 h-12 rounded-lg bg-orange-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i data-lucide="wifi-off" class="text-orange-500 w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">100% Offline</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm">
+                        Funciona sem internet. Seus dados ficam salvos localmente no dispositivo, garantindo privacidade
+                        e velocidade.
+                    </p>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="p-8 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors animate-on-scroll group"
+                    style="animation-delay: 200ms;">
+                    <div
+                        class="w-12 h-12 rounded-lg bg-orange-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i data-lucide="file-spreadsheet" class="text-orange-500 w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Exportação Fácil</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm">
+                        Exporte os resultados para Excel, CSV ou PDF com um clique. Integre facilmente com seu diário de
+                        classe.
+                    </p>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="p-8 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors animate-on-scroll group"
+                    style="animation-delay: 300ms;">
+                    <div
+                        class="w-12 h-12 rounded-lg bg-orange-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i data-lucide="bar-chart-2" class="text-orange-500 w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Análise de Desempenho</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm">
+                        Visualização gráfica do desempenho da turma. Identifique as questões com maior índice de erro.
+                    </p>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="p-8 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors animate-on-scroll group"
+                    style="animation-delay: 400ms;">
+                    <div
+                        class="w-12 h-12 rounded-lg bg-orange-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i data-lucide="printer" class="text-orange-500 w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Gabaritos Personalizáveis</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm">
+                        Gere e imprima folhas de resposta personalizadas para suas provas, compatíveis com qualquer
+                        impressora.
+                    </p>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="p-8 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-colors animate-on-scroll group"
+                    style="animation-delay: 500ms;">
+                    <div
+                        class="w-12 h-12 rounded-lg bg-orange-500/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i data-lucide="shield-check" class="text-orange-500 w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Seguro e Privado</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm">
+                        Seus dados não saem do seu dispositivo. Total conformidade com a privacidade dos alunos.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How it Works Section -->
+    <section id="how-it-works" class="py-24 relative z-10 bg-white/[0.02] border-y border-white/5">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="mb-16 text-center max-w-2xl mx-auto">
+                <h2
+                    class="text-4xl md:text-5xl text-white font-bricolage font-light tracking-tight mb-4 animate-on-scroll">
+                    Simples como <span class="text-orange-500">1, 2, 3</span>
+                </h2>
+                <p class="text-lg text-neutral-400 leading-relaxed font-sans animate-on-scroll">
+                    Veja como é fácil começar a corrigir suas provas em segundos.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-12 relative animate-on-scroll">
+                <!-- Connecting Line (Desktop) -->
+                <div
+                    class="hidden md:block absolute top-12 left-[16%] right-[16%] h-0.5 bg-gradient-to-r from-transparent via-orange-500/30 to-transparent z-0">
+                </div>
+
+                <!-- Step 1 -->
+                <div class="relative z-10 flex flex-col items-center text-center group">
+                    <div
+                        class="w-24 h-24 rounded-full bg-[#0A0A0A] border border-orange-500/30 flex items-center justify-center mb-6 shadow-[0_0_30px_-10px_rgba(249,115,22,0.3)] group-hover:scale-110 transition-transform duration-300">
+                        <span class="text-4xl font-bricolage font-bold text-white">1</span>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Crie a Prova</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm max-w-xs">
+                        Cadastre sua turma e crie o gabarito oficial com as respostas corretas no sistema.
+                    </p>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="relative z-10 flex flex-col items-center text-center group">
+                    <div
+                        class="w-24 h-24 rounded-full bg-[#0A0A0A] border border-orange-500/30 flex items-center justify-center mb-6 shadow-[0_0_30px_-10px_rgba(249,115,22,0.3)] group-hover:scale-110 transition-transform duration-300 delay-100">
+                        <span class="text-4xl font-bricolage font-bold text-white">2</span>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Imprima os Gabaritos</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm max-w-xs">
+                        Baixe e imprima as folhas de resposta personalizadas para seus alunos preencherem.
+                    </p>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="relative z-10 flex flex-col items-center text-center group">
+                    <div
+                        class="w-24 h-24 rounded-full bg-[#0A0A0A] border border-orange-500/30 flex items-center justify-center mb-6 shadow-[0_0_30px_-10px_rgba(249,115,22,0.3)] group-hover:scale-110 transition-transform duration-300 delay-200">
+                        <span class="text-4xl font-bricolage font-bold text-white">3</span>
+                    </div>
+                    <h3 class="text-xl text-white font-bold mb-3 font-bricolage">Escaneie e Pronto!</h3>
+                    <p class="text-neutral-400 leading-relaxed text-sm max-w-xs">
+                        Aponte a câmera e veja a nota aparecer instantaneamente. Exporte os resultados.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="py-24 relative z-10">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="mb-16 text-center max-w-3xl mx-auto animate-on-scroll">
+                <h2 class="text-4xl md:text-5xl text-white font-bricolage font-light tracking-tight mb-4">
+                    Quanto Vale o Seu <span class="text-orange-500">Descanso?</span>
+                </h2>
+                <p class="text-lg text-neutral-400 leading-relaxed font-sans">
+                    Por menos do que o preço de um lanche, você garante paz e tranquilidade para o ano inteiro.
+                </p>
+            </div>
+
+            <div class="flex justify-center animate-on-scroll">
+                <div class="relative max-w-lg w-full">
+                    <!-- Glow Effect -->
+                    <div
+                        class="absolute -inset-1 bg-gradient-to-r from-orange-600 via-amber-500 to-orange-600 rounded-[35px] blur opacity-75 animate-pulse">
+                    </div>
+
+                    <div class="relative bg-[#0A0A0A] rounded-[32px] border border-white/10 overflow-hidden">
+                        <!-- Header -->
+                        <div
+                            class="relative p-8 md:p-10 border-b border-white/10 bg-gradient-to-b from-white/5 to-transparent">
+                            <div class="absolute top-0 right-0">
+                                <span
+                                    class="bg-gradient-to-l from-orange-600 to-amber-500 text-white text-xs font-bold px-4 py-2 rounded-bl-xl shadow-lg uppercase tracking-wider">
+                                    80% OFF
+                                </span>
+                            </div>
+
+                            <h3 class="text-2xl text-white font-bricolage font-bold mb-2">Licença Vitalícia</h3>
+                            <p class="text-neutral-400 text-sm mb-6">Acesso completo para sempre.</p>
+
+                            <div class="flex items-center gap-4">
+                                <div class="flex flex-col">
+                                    <span
+                                        class="text-sm text-neutral-500 line-through decoration-red-500 decoration-2">De
+                                        R$ 97,00</span>
+                                    <div class="flex items-baseline gap-1">
+                                        <span class="text-2xl text-orange-500 font-bold">R$</span>
+                                        <span
+                                            class="text-6xl text-white font-bricolage font-bold tracking-tighter">19,90</span>
+                                    </div>
+                                </div>
+                                <div class="hidden sm:block h-12 w-px bg-white/10 mx-2"></div>
+                                <div class="hidden sm:block text-xs text-neutral-400 max-w-[120px]">
+                                    Pagamento único. <br>Sem mensalidades.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Content -->
+                        <div class="p-8 md:p-10 bg-neutral-900/50">
+                            <ul class="space-y-4 mb-8">
+                                <li class="flex items-start gap-3 text-neutral-300">
+                                    <div class="p-1 rounded-full bg-orange-500/20 text-orange-500 mt-0.5">
+                                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                    </div>
+                                    <span class="text-sm">Correções Ilimitadas</span>
+                                </li>
+                                <li class="flex items-start gap-3 text-neutral-300">
+                                    <div class="p-1 rounded-full bg-orange-500/20 text-orange-500 mt-0.5">
+                                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                    </div>
+                                    <span class="text-sm">Turmas e Alunos Ilimitados</span>
+                                </li>
+                                <li class="flex items-start gap-3 text-neutral-300">
+                                    <div class="p-1 rounded-full bg-orange-500/20 text-orange-500 mt-0.5">
+                                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                    </div>
+                                    <span class="text-sm">Exportação para Excel e PDF</span>
+                                </li>
+                                <li class="flex items-start gap-3 text-neutral-300">
+                                    <div class="p-1 rounded-full bg-orange-500/20 text-orange-500 mt-0.5">
+                                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                    </div>
+                                    <span class="text-sm">Funciona Offline (Sem Internet)</span>
+                                </li>
+                                <li class="flex items-start gap-3 text-neutral-300">
+                                    <div class="p-1 rounded-full bg-orange-500/20 text-orange-500 mt-0.5">
+                                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                    </div>
+                                    <span class="text-sm">Suporte Prioritário</span>
+                                </li>
+                            </ul>
+
+                            <button
+                                class="w-full group relative flex items-center justify-center gap-2.5 rounded-full bg-gradient-to-t from-yellow-200 via-orange-400 to-orange-500 px-8 py-4 text-lg font-bold text-[#2c1306] shadow-[0_0_40px_-5px_rgba(249,115,22,0.6)] ring-1 ring-inset ring-white/40 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_60px_-5px_rgba(249,115,22,0.8)]">
+                                <span class="font-bricolage">QUERO PAZ NA CORREÇÃO</span>
+                                <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                            </button>
+
+                            <div class="flex items-center justify-center gap-2 mt-6 text-xs text-neutral-500">
+                                <i data-lucide="lock" class="w-3 h-3"></i>
+                                Compra 100% Segura
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- How it Works / CTA Strip -->
+        <section class="py-20 relative overflow-hidden">
+            <div class="absolute inset-0 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 opacity-10"></div>
+            <div class="max-w-4xl mx-auto px-6 text-center relative z-10">
+                <h2 class="text-3xl md:text-4xl text-white font-bricolage font-bold mb-8">Cansado de virar noites
+                    corrigindo?</h2>
+                <button
+                    class="group relative inline-flex items-center justify-center gap-2.5 rounded-full bg-white px-8 py-4 text-lg font-bold text-orange-600 shadow-xl transition-all duration-300 hover:scale-105 hover:bg-neutral-100">
+                    <span class="font-sans">Resolva Isso Agora</span>
+                    <i data-lucide="arrow-right" class="w-5 h-5 transition-transform group-hover:translate-x-1"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="border-t border-white/10 bg-[#0A0A0A] pt-16 pb-8">
+            <div class="max-w-7xl mx-auto px-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+                    <div class="md:col-span-2">
+                        <div class="flex items-center gap-2 mb-4">
+                            <i data-lucide="scan-line" class="text-orange-500 w-6 h-6"></i>
+                            <span class="text-xl text-white font-bricolage font-bold">Gabarito Fácil</span>
+                        </div>
+                        <p class="text-neutral-400 text-sm leading-relaxed max-w-sm">
+                            Simplificando a vida de professores e escolas com tecnologia de ponta para correção de
+                            avaliações via reconhecimento de imagem.
+                        </p>
+                    </div>
+                    <div>
+                        <h4 class="text-white font-bold mb-4 font-bricolage">Produto</h4>
+                        <ul class="space-y-2 text-sm text-neutral-400">
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Funcionalidades</a></li>
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Preços</a></li>
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Download</a></li>
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Atualizações</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="text-white font-bold mb-4 font-bricolage">Suporte</h4>
+                        <ul class="space-y-2 text-sm text-neutral-400">
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Central de Ajuda</a></li>
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Tutoriais</a></li>
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Contato</a></li>
+                            <li><a href="#" class="hover:text-orange-500 transition-colors">Privacidade</a></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="border-t border-white/5 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div class="text-xs text-neutral-500">
+                        © 2026 Gabarito Fácil. Todos os direitos reservados.
+                    </div>
+                    <div class="flex gap-4">
+                        <a href="#" class="text-neutral-500 hover:text-orange-500 transition-colors"><i
+                                data-lucide="twitter" class="w-4 h-4"></i></a>
+                        <a href="#" class="text-neutral-500 hover:text-orange-500 transition-colors"><i
+                                data-lucide="instagram" class="w-4 h-4"></i></a>
+                        <a href="#" class="text-neutral-500 hover:text-orange-500 transition-colors"><i
+                                data-lucide="linkedin" class="w-4 h-4"></i></a>
+                    </div>
+                </div>
+            </div>
+        </footer>
+
+</body>
+
+</html>

@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+@theme {
+    --color-brand-50: #fff7ed;
+    --color-brand-100: #ffedd5;
+    --color-brand-600: #ea580c;
+    --color-brand-700: #c2410c;
+}
+
+/* Base Styles */
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: #ffffff;
+    /* White */
+    color: #000000;
+    /* Black */
+    /* Slate-900 */
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Custom Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: tranneutralY(100%);
+    }
+
+    to {
+        transform: tranneutralY(0);
+    }
+}
+
+@keyframes scan {
+    0% {
+        top: 0%;
+        opacity: 0;
+    }
+
+    10% {
+        opacity: 1;
+    }
+
+    90% {
+        opacity: 1;
+    }
+
+    100% {
+        top: 100%;
+        opacity: 0;
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.animate-scaleIn {
+    animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-slideUp {
+    animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-scan {
+    animation: scan 2s linear infinite;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Utility for hiding scrollbar but keeping function */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* SafeArea for different devices */
+.safe-top {
+    padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+}

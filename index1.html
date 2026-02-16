@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Financeiro Pessoal</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f4f4f4;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+
+        .summary {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .summary div {
+            padding: 15px;
+            border-radius: 8px;
+            width: 30%;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            background: #fff;
+        }
+
+        .summary .income {
+            background: #e6ffed;
+            color: #27ae60;
+        }
+
+        .summary .expense {
+            background: #ffebeb;
+            color: #e74c3c;
+        }
+
+        .summary .balance {
+            background: #eaf2fa;
+            color: #3498db;
+        }
+
+        canvas {
+            max-width: 100%;
+            margin: 20px auto;
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background: #f8f9fa;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Dashboard Financeiro Pessoal</h1>
+        <div class="summary">
+            <div class="income">
+                <h3>Entradas</h3>
+                <p id="total-income">R$ 5.000,00</p>
+            </div>
+            <div class="expense">
+                <h3>Saídas</h3>
+                <p id="total-expense">R$ 3.200,00</p>
+            </div>
+            <div class="balance">
+                <h3>Saldo</h3>
+                <p id="balance">R$ 1.800,00</p>
+            </div>
+        </div>
+        <canvas id="chart"></canvas>
+        <h2>Últimas Transações</h2>
+        <table id="transactions">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Descrição</th>
+                    <th>Tipo</th>
+                    <th>Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Exemplo de transações -->
+                <tr>
+                    <td>01/02/2026</td>
+                    <td>Salário</td>
+                    <td>Entrada</td>
+                    <td>R$ 5.000,00</td>
+                </tr>
+                <tr>
+                    <td>03/02/2026</td>
+                    <td>Supermercado</td>
+                    <td>Saída</td>
+                    <td>R$ 800,00</td>
+                </tr>
+                <tr>
+                    <td>05/02/2026</td>
+                    <td>Transporte</td>
+                    <td>Saída</td>
+                    <td>R$ 200,00</td>
+                </tr>
+                <tr>
+                    <td>06/02/2026</td>
+                    <td>Freela</td>
+                    <td>Entrada</td>
+                    <td>R$ 1.000,00</td>
+                </tr>
+                <tr>
+                    <td>07/02/2026</td>
+                    <td>Restaurante</td>
+                    <td>Saída</td>
+                    <td>R$ 150,00</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Dados fictícios para gráfico
+        const ctx = document.getElementById('chart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Salário', 'Freela', 'Supermercado', 'Transporte', 'Restaurante'],
+                datasets: [{
+                    label: 'Valores (R$)',
+                    data: [5000, 1000, -800, -200, -150],
+                    backgroundColor: [
+                        '#27ae60',
+                        '#27ae60',
+                        '#e74c3c',
+                        '#e74c3c',
+                        '#e74c3c'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // Atualização dos totais (exemplo estático)
+        const income = 6000; // soma das entradas
+        const expense = 1150; // soma das saídas
+        const balance = income - expense;
+
+        document.getElementById('total-income').textContent = 'R$ ' + income.toFixed(2).replace('.', ',');
+        document.getElementById('total-expense').textContent = 'R$ ' + expense.toFixed(2).replace('.', ',');
+        document.getElementById('balance').textContent = 'R$ ' + balance.toFixed(2).replace('.', ',');
+
+        // Você pode adicionar funcionalidades para adicionar transações dinamicamente
+    </script>
+</body>
+
+</html>
