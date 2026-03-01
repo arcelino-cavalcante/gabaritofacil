@@ -32,9 +32,8 @@ export const OMRService = {
         formData.append('file', blob, 'gabarito.jpg');
         formData.append('num_questoes', gabarito.questoes ? gabarito.questoes.length : 20);
 
-        // 3. Chamar a API em Python (a verdadeira mágica)
         try {
-            const apiUrl = import.meta.env.VITE_API_URL || '';
+            const apiUrl = import.meta.env.VITE_API_URL || window.location.origin;
             const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
             const fullUrl = baseUrl ? `${baseUrl}/api/omr/corrigir` : '/api/omr/corrigir';
 

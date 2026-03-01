@@ -177,7 +177,7 @@ const GabaritoConfig = ({ modo, turmaSelecionada, onBack, onGabaritoSalvo }) => 
                 alunos = await listarAlunosPorTurma(turmaId);
             }
 
-            const apiUrl = import.meta.env.VITE_API_URL || '';
+            const apiUrl = import.meta.env.VITE_API_URL || window.location.origin;
             const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
             const fullUrl = baseUrl ? `${baseUrl}/api/omr/gerar-pdf` : '/api/omr/gerar-pdf';
 

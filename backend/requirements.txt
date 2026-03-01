@@ -8,3 +8,4 @@ opencv-python==4.9.0.80
 numpy==1.26.4
 reportlab==4.1.0
 qrcode==7.4.2
+a2wsgi==1.10.4
