@@ -178,9 +178,10 @@ const GabaritoConfig = ({ modo, turmaSelecionada, onBack, onGabaritoSalvo }) => 
             }
 
             const apiUrl = import.meta.env.VITE_API_URL || '';
-            const relativeUrl = apiUrl.endsWith('/api') ? apiUrl : '/api';
+            const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+            const fullUrl = baseUrl ? `${baseUrl}/api/omr/gerar-pdf` : '/api/omr/gerar-pdf';
 
-            const response = await fetch(`${relativeUrl}/omr/gerar-pdf`, {
+            const response = await fetch(fullUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
