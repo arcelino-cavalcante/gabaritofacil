@@ -116,9 +116,10 @@ const drawSingleGabarito = async (doc, offsetX, offsetY, turmaNome, nomeAluno, a
 
 export const PDFGenerator = {
     async buildGabaritoPDF(turmaNome, alunos, gabaritoId, numQuestoes = 40, layout = 1) {
-        // orientation: portrait, unit: mm, format: a4
+        const orientation = layout === 2 ? 'landscape' : 'portrait';
+        // orientation: portrait/landscape, unit: mm, format: a4
         const doc = new jsPDF({
-            orientation: 'portrait',
+            orientation: orientation,
             unit: 'mm',
             format: 'a4'
         });
@@ -128,15 +129,15 @@ export const PDFGenerator = {
             alunos = Array(layout).fill({ id: "", nome: "" });
         }
 
-        const wPage = A4_WIDTH;
-        const hPage = A4_HEIGHT;
+        const wPage = layout === 2 ? A4_HEIGHT : A4_WIDTH;
+        const hPage = layout === 2 ? A4_WIDTH : A4_HEIGHT;
 
         for (let i = 0; i < alunos.length; i += layout) {
             const lote = alunos.slice(i, i + layout);
 
             // Adiciona nova página a partir da segunda
             if (i > 0) {
-                doc.addPage();
+                doc.addPage('a4', orientation);
             }
 
             if (layout === 1) {
@@ -144,24 +145,28 @@ export const PDFGenerator = {
                 await drawSingleGabarito(doc, 0, 0, turmaNome, aluno.nome, aluno.id, gabaritoId, numQuestoes, 1.0);
             } else if (layout === 2) {
                 const scale = 0.70;
-                const logicalH = hPage * scale;
-                const logicalW = wPage * scale;
-                const offsetX = (wPage - logicalW) / 2;
+                // As dimensões lógicas do gabarito (baseadas no A4 Portrait original)
+                const logicalH = A4_HEIGHT * scale;
+                const logicalW = A4_WIDTH * scale;
 
-                const offsetYTop = (hPage / 2 - logicalH) / 2;
-                const offsetYBottom = (hPage / 2) + (hPage / 2 - logicalH) / 2;
+                // Em paisagem (w=297, h=210), alinhamos lado a lado (esquerda e direita)
+                const offsetLeft = (wPage / 2 - logicalW) / 2;
+                const offsetRight = (wPage / 2) + (wPage / 2 - logicalW) / 2;
 
-                // Linha de corte
+                // Centraliza no eixo Y para não cortar
+                const offsetY = (hPage - logicalH) / 2;
+
+                // Linha de corte VERTICAL no meio da folha paisagem
                 doc.setLineDashPattern([2, 1], 0);
                 doc.setLineWidth(0.5);
-                doc.line(0, hPage / 2, wPage, hPage / 2);
+                doc.line(wPage / 2, 0, wPage / 2, hPage);
                 doc.setLineDashPattern([], 0); // Reset
 
                 if (lote.length > 0) {
-                    await drawSingleGabarito(doc, offsetX, offsetYTop, turmaNome, lote[0].nome, lote[0].id, gabaritoId, numQuestoes, scale);
+                    await drawSingleGabarito(doc, offsetLeft, offsetY, turmaNome, lote[0].nome, lote[0].id, gabaritoId, numQuestoes, scale);
                 }
                 if (lote.length > 1) {
-                    await drawSingleGabarito(doc, offsetX, offsetYBottom, turmaNome, lote[1].nome, lote[1].id, gabaritoId, numQuestoes, scale);
+                    await drawSingleGabarito(doc, offsetRight, offsetY, turmaNome, lote[1].nome, lote[1].id, gabaritoId, numQuestoes, scale);
                 }
             } else if (layout === 4) {
                 const scale = 0.48;
