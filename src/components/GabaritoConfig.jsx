@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { jsPDF } from 'jspdf';
-import { gerarPDFGabarito } from '../utils/pdfGenerator';
-import { salvarGabarito, listarTurmas, listarAlunosPorTurma, salvarCabecalho, listarCabecalhos, excluirCabecalho } from '../db';
+import { salvarGabarito, listarTurmas, listarAlunosPorTurma, salvarCabecalho, listarCabecalhos, excluirCabecalho, buscarTurma } from '../db';
 import { useModal } from '../contexts/ModalContext';
 import DownloadOptionsModal from './DownloadOptionsModal';
 
@@ -133,9 +131,10 @@ const GabaritoConfig = ({ modo, turmaSelecionada, onBack, onGabaritoSalvo }) => 
         };
 
         try {
-            await salvarGabarito(novoGabarito);
+            const savedGabarito = await salvarGabarito(novoGabarito);
             await showAlert('Gabarito salvo e pronto para uso!');
             onGabaritoSalvo();
+            return savedGabarito;
         } catch (error) {
             console.error('Erro ao salvar:', error);
             await showAlert('Erro ao salvar gabarito');
@@ -152,32 +151,60 @@ const GabaritoConfig = ({ modo, turmaSelecionada, onBack, onGabaritoSalvo }) => 
         await new Promise(resolve => setTimeout(resolve, 500));
 
         try {
-            // Prepara dados para o gerador
-            const gabaritoDados = {
+            // Em vez de gerar localmente, nós primeiro SALVAMOS o gabarito no banco via API
+            // Para então obter o ID oficial e disparar o download com o python
+            const novoGabaritoData = {
                 nome: nomeGabarito,
                 tipo: modo,
+                turmaId: turmaId || null,
                 questoes: questoes,
-                dataProva: dataProva
+                cabecalhoId: selectedCabecalhoId || null,
+                dataProva: dataProva || null,
+                dataCriacao: new Date().toISOString()
             };
 
-            const selectedHeader = cabecalhos.find(c => c.id === selectedCabecalhoId);
-            const turma = turmas.find(t => t.id === turmaId);
+            const saved = await salvarGabarito(novoGabaritoData);
 
-            let alunos = [];
-            if (modo === 'nominal' && turmaId) {
-                alunos = await listarAlunosPorTurma(turmaId);
-                if (alunos.length === 0) {
-                    await showAlert('Esta turma não tem alunos cadastrados.');
-                    setIsGenerating(false);
-                    return;
-                }
+            let tNome = "Sem Turma";
+            if (turmaId) {
+                const turmaObj = await buscarTurma(turmaId);
+                if (turmaObj) tNome = turmaObj.nome;
             }
 
-            const doc = gerarPDFGabarito(gabaritoDados, turma, alunos, selectedHeader, layout);
-            doc.save(`Gabarito_${nomeGabarito}_${layout}x.pdf`);
+            const numQ = saved.questoes ? saved.questoes.length : 20;
+            let alunos = [];
+            if (turmaId) {
+                alunos = await listarAlunosPorTurma(turmaId);
+            }
 
-            // Salva automaticamente após gerar
-            handleSalvarGabarito();
+            const apiUrl = import.meta.env.VITE_API_URL || '';
+            const relativeUrl = apiUrl.endsWith('/api') ? apiUrl : '/api';
+
+            const response = await fetch(`${relativeUrl}/omr/gerar-pdf`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    turma_nome: tNome,
+                    gabarito_id: saved.id,
+                    num_questoes: numQ,
+                    layout: layout,
+                    alunos: alunos.map(a => ({ id: a.id, nome: a.nome }))
+                })
+            });
+
+            if (!response.ok) throw new Error("Erro na geração do PDF");
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Gabarito_${saved.nome}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            onGabaritoSalvo();
 
         } catch (error) {
             console.error("Erro ao gerar PDF:", error);

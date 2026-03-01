@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { salvarNota, listarAlunosPorTurma } from '../db';
 import { useModal } from '../contexts/ModalContext';
 import { OMRService } from '../services/OMRService';
@@ -17,33 +17,18 @@ const Scanner = ({ gabarito, onBack }) => {
     const [resultado, setResultado] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [alunos, setAlunos] = useState([]);
-    const [cvLoaded, setCvLoaded] = useState(false);
-    const [statusMessage, setStatusMessage] = useState("Inicializando inteligência...");
+    const [cameraReady, setCameraReady] = useState(false);
+    const [statusMessage, setStatusMessage] = useState("Inicializando câmera...");
 
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    const processingRef = useRef(false);
-    const detectingRef = useRef(false);
 
     useEffect(() => {
-        // Carregar OpenCV e Alunos
-        const checkOpenCV = setInterval(() => {
-            if (window.cv && window.cv.Mat) {
-                clearInterval(checkOpenCV);
-                setCvLoaded(true);
-                setStatusMessage("Câmera pronta via OpenCV");
-                iniciarCamera();
-            }
-        }, 500);
-
+        iniciarCamera();
         if (gabarito.tipo === 'nominal' && gabarito.turmaId) {
             carregarAlunos();
         }
-
-        return () => {
-            clearInterval(checkOpenCV);
-            pararCamera();
-        };
+        return () => pararCamera();
     }, []);
 
     const carregarAlunos = async () => {
@@ -53,137 +38,115 @@ const Scanner = ({ gabarito, onBack }) => {
         } catch (error) { console.error(error); }
     };
 
+    const [imageCapture, setImageCapture] = useState(null);
+
     const iniciarCamera = async () => {
         try {
+            // Tentar solicitar resolução 4K ou Full HD no mínimo, e câmera traseira
             const constraints = {
                 video: {
-                    facingMode: 'environment',
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    facingMode: { exact: "environment" }, // Tenta forçar traseira
+                    width: { ideal: 3840, min: 1920 },    // 4K preferido, 1080p mínimo
+                    height: { ideal: 2160, min: 1080 },
+                    focusMode: 'continuous',              // Tenta focar continuamente
+                    exposureMode: 'continuous'            // Tenta ajustar luz automaticamente
                 }
             };
-            const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+            // Fallback se "exact environment" falhar (comum em desktops)
+            let mediaStream;
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (e) {
+                console.warn("Câmera traseira exata falhou, tentando modo geral...", e);
+                try {
+                    mediaStream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: 'environment', // Sem 'exact'
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                        }
+                    });
+                } catch (e2) {
+                    console.warn("Também falhou modo environment genérico. Pegando a câmera que estiver disponível...", e2);
+                    mediaStream = await navigator.mediaDevices.getUserMedia({
+                        video: true // Fallback final absoluto sem restrições
+                    });
+                }
+            }
+
             setStream(mediaStream);
+
+            // Setup ImageCapture se disponível (para fotos HD)
+            const track = mediaStream.getVideoTracks()[0];
+            if ('ImageCapture' in window) {
+                try {
+                    const ic = new window.ImageCapture(track);
+                    setImageCapture(ic);
+                    console.log("ImageCapture API suportada!");
+                } catch (e) { console.error("Erro ao iniciar ImageCapture", e); }
+            }
+
+            // Aplicar constraints avançadas na track se possível (Foco, Zoom, Torch)
+            const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+            const advancedConstraints = {};
+            if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) advancedConstraints.focusMode = 'continuous';
+            if (capabilities.exposureMode && capabilities.exposureMode.includes('continuous')) advancedConstraints.exposureMode = 'continuous';
+            // if (capabilities.torch) ... (poderíamos adicionar botão de flash)
+
+            if (Object.keys(advancedConstraints).length > 0) {
+                try {
+                    await track.applyConstraints({ advanced: [advancedConstraints] });
+                } catch (e) { console.warn("Erro ao aplicar constraints avançadas", e); }
+            }
 
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
                 videoRef.current.onloadedmetadata = () => {
                     videoRef.current.play();
-                    requestAnimationFrame(detectarDocumentoLoop);
+                    setCameraReady(true);
+                    setStatusMessage("Câmera de Alta Precisão Pronta");
                 };
             }
-            setStatusMessage("Enquadre o Gabarito");
         } catch (err) {
             console.error(err);
-            setStatusMessage("Erro: " + err.message);
-            await showAlert("Erro ao acessar câmera. Verifique permissões.");
-        }
-    };
-
-    const pararCamera = () => {
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-        }
-        processingRef.current = false;
-    };
-
-    // Loop visual: Desenha contornos em tempo real (Feedback Visual)
-    const detectingLoopId = useRef(null);
-    const detectarDocumentoLoop = () => {
-        if (!videoRef.current || !canvasRef.current || !window.cv || resultado || processingRef.current) return;
-
-        // Limita FPS (processa a cada ~100ms)
-        if (detectingRef.current) {
-            detectingLoopId.current = requestAnimationFrame(detectarDocumentoLoop);
-            return;
-        }
-
-        detectingRef.current = true;
-        try {
-            const cv = window.cv;
-            const video = videoRef.current;
-            const canvas = canvasRef.current;
-            const ctx = canvas.getContext('2d');
-
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-
-                let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                let cap = new cv.VideoCapture(video);
-                cap.read(src);
-
-                let gray = new cv.Mat();
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-                cv.Canny(gray, gray, 75, 200);
-
-                let contours = new cv.MatVector();
-                let hierarchy = new cv.Mat();
-                cv.findContours(gray, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                let maxArea = 0;
-                let foundContour = null;
-
-                for (let i = 0; i < contours.size(); ++i) {
-                    let cnt = contours.get(i);
-                    let area = cv.contourArea(cnt);
-                    if (area > 5000) {
-                        let peri = cv.arcLength(cnt, true);
-                        let approx = new cv.Mat();
-                        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-
-                        if (approx.rows === 4 && area > maxArea) {
-                            maxArea = area;
-                            foundContour = approx;
-                        } else {
-                            approx.delete();
-                        }
-                    }
-                }
-
-                if (foundContour) {
-                    ctx.strokeStyle = '#00ff00'; // Verde
-                    ctx.lineWidth = 4;
-                    ctx.beginPath();
-
-                    let data = foundContour.data32S;
-                    ctx.moveTo(data[0], data[1]);
-                    ctx.lineTo(data[2], data[3]);
-                    ctx.lineTo(data[4], data[5]);
-                    ctx.lineTo(data[6], data[7]);
-                    ctx.closePath();
-                    ctx.stroke();
-
-                    foundContour.delete();
-                }
-
-                src.delete(); gray.delete(); contours.delete(); hierarchy.delete();
-            }
-        } catch (e) {
-            console.error(e);
-        }
-        detectingRef.current = false;
-        if (!resultado && !isProcessing) {
-            detectingLoopId.current = requestAnimationFrame(detectarDocumentoLoop);
+            setStatusMessage("Erro Câm: " + err.message);
+            await showAlert("Erro ao acessar câmera de alta resolução. Verifique permissões.");
         }
     };
 
     const capturarEProcessar = async () => {
-        if (!videoRef.current || !window.cv) return;
+        if (!videoRef.current) return;
         setIsProcessing(true);
-        processingRef.current = true; // Stop visual loop
-        cancelAnimationFrame(detectingLoopId.current);
-        setStatusMessage("Processando respostas...");
+        setStatusMessage("Focando e Capturando...");
 
         try {
-            // Real OMR Processing
-            const video = videoRef.current;
+            let imageSource;
 
-            // Call the service with the video element and gabarito data
-            const result = await OMRService.scanAndRead(video, gabarito);
+            // Se ImageCapture disponível, tirar foto em Alta Resolução
+            if (imageCapture) {
+                try {
+                    const blob = await imageCapture.takePhoto();
+                    const bitmap = await createImageBitmap(blob);
+
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = bitmap.width;
+                    tempCanvas.height = bitmap.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.drawImage(bitmap, 0, 0);
+
+                    imageSource = tempCanvas;
+                    setStatusMessage("Enviando foto (" + bitmap.width + "x" + bitmap.height + ") para servidor inteligente...");
+                } catch (photoErr) {
+                    console.warn("Falha ao usar takePhoto, fallback para video feed", photoErr);
+                    imageSource = videoRef.current;
+                }
+            } else {
+                imageSource = videoRef.current;
+            }
+
+            // Real OMR Processing via Backend Python
+            const result = await OMRService.scanAndRead(imageSource, gabarito);
 
             // Calculate score
             let acertos = 0;
@@ -202,46 +165,75 @@ const Scanner = ({ gabarito, onBack }) => {
             });
 
             const nota = Math.round((acertos / total) * 10);
-            const resFinal = { acertos, total, nota, detalhesErros };
+            const resFinal = {
+                acertos,
+                total,
+                nota,
+                detalhesErros,
+                trustedArea: result.trustedArea,
+                debugImage: result.debugImage // Pass image to state
+            };
 
             setResultado(resFinal);
-            setStatusMessage("Correção finalizada com sucesso!");
+            setStatusMessage("Correção HD finalizada!");
             if (gabarito.tipo === 'nominal') salvarSeNominal(resFinal);
+
+            // Se o motor não achou a folha exibe um alerta logo em seguida
+            if (result.trustedArea === false) {
+                showAlert("Atenção: As bordas da folha de gabarito não foram localizadas com precisão. Sugerimos verificar a leitura ou refazer a foto mais próxima e reta.");
+            }
 
         } catch (err) {
             console.error(err);
             setStatusMessage("Erro: " + err.message);
             await showAlert("Falha ao ler gabarito: " + err.message);
-            // Resume detection if failed
-            processingRef.current = false;
             setIsProcessing(false);
-            detectingLoopId.current = requestAnimationFrame(detectarDocumentoLoop);
         } finally {
             setIsProcessing(false);
         }
     };
 
     const salvarSeNominal = async (res) => {
-        if (alunos.length > 0) {
-            const aluno = alunos[Math.floor(Math.random() * alunos.length)];
-            try {
-                await salvarNota({
-                    alunoId: aluno.id,
-                    gabaritoId: gabarito.id,
-                    nota: res.nota,
-                    acertos: res.acertos,
-                    total: res.total
-                });
-            } catch (e) { console.error(e); }
+        if (gabarito.tipo === 'nominal' && alunos.length > 0) {
+
+            // Verifica se a Inteligência leu o ID do aluno no QR Code
+            if (res.qrCodeData && res.qrCodeData.aluno_id) {
+                const alunoIdLido = res.qrCodeData.aluno_id;
+                const alunoExiste = alunos.find(a => a.id === alunoIdLido);
+
+                if (alunoExiste) {
+                    try {
+                        await salvarNota({
+                            alunoId: alunoExiste.id,
+                            gabaritoId: gabarito.id,
+                            nota: res.nota,
+                            acertos: res.acertos,
+                            total: res.total
+                        });
+                        setStatusMessage(`Nota salva para: ${alunoExiste.nome}`);
+                    } catch (e) {
+                        console.error(e);
+                        showAlert("Erro ao salvar nota no banco de dados.");
+                    }
+                } else {
+                    showAlert("Aluno não encontrado nesta turma! O gabarito pertence a outra sala?");
+                }
+            } else {
+                showAlert("Atenção: A câmera não conseguiu ler o QR Code do aluno nesta folha. A nota não foi salva automaticamente.");
+            }
+        }
+    };
+
+    const pararCamera = () => {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
         }
     };
 
     const reiniciar = () => {
         setResultado(null);
         setIsProcessing(false);
-        processingRef.current = false;
-        setStatusMessage("Enquadre o Gabarito");
-        requestAnimationFrame(detectarDocumentoLoop);
+        setStatusMessage("Câmera Pronta");
     };
 
     return (
@@ -250,7 +242,7 @@ const Scanner = ({ gabarito, onBack }) => {
             <div className="relative flex-1 bg-neutral-900 overflow-hidden flex flex-col items-center justify-center">
 
                 {/* Loader Inicial */}
-                {!cvLoaded && (
+                {!cameraReady && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/90 text-white gap-4">
                         <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
                         <p className="font-medium animate-pulse">Carregando IA de Visão...</p>
@@ -290,7 +282,7 @@ const Scanner = ({ gabarito, onBack }) => {
                         </button>
                         <div className="bg-black/60 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 shadow-lg">
                             <span className="text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full ${cvLoaded ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
+                                <span className={`w-2 h-2 rounded-full ${cameraReady ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
                                 {statusMessage}
                             </span>
                         </div>
@@ -302,7 +294,7 @@ const Scanner = ({ gabarito, onBack }) => {
                         <div className="flex justify-center pb-8 pt-4 pointer-events-auto">
                             <button
                                 onClick={capturarEProcessar}
-                                disabled={isProcessing || !cvLoaded}
+                                disabled={isProcessing || !cameraReady}
                                 className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${isProcessing
                                     ? 'bg-white/10 border-4 border-white/20 scale-90'
                                     : 'bg-white hover:scale-105 active:scale-95 ring-4 ring-white/50'
@@ -322,6 +314,17 @@ const Scanner = ({ gabarito, onBack }) => {
                 <div className="absolute inset-x-0 bottom-0 z-50 flex items-end justify-center pointer-events-none">
                     <div className="w-full max-w-md pointer-events-auto animate-slideUp">
                         <div className="bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)] overflow-hidden">
+
+                            {/* Debug Image Preview */}
+                            {resultado.debugImage && (
+                                <div className="w-full bg-neutral-900 flex justify-center py-4 border-b border-neutral-800">
+                                    <img
+                                        src={resultado.debugImage}
+                                        alt="Debug Leitura"
+                                        className="h-48 object-contain rounded-lg shadow-lg border border-white/20"
+                                    />
+                                </div>
+                            )}
 
                             {/* Header Nota */}
                             <div className={`p-8 flex items-center justify-between ${resultado.nota >= 6 ? 'bg-gradient-to-br from-green-500 to-emerald-700' : 'bg-gradient-to-br from-red-500 to-orange-700'}`}>
@@ -383,7 +386,7 @@ const Scanner = ({ gabarito, onBack }) => {
                             {/* Footer Actions */}
                             <div className="p-4 bg-white border-t border-neutral-200 flex gap-3 safe-bottom shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-20 relative">
                                 <button
-                                    onClick={onCloseResultado => { setResultado(null); processingRef.current = false; setIsProcessing(false); requestAnimationFrame(detectarDocumentoLoop); }}
+                                    onClick={() => { setResultado(null); setIsProcessing(false); }}
                                     className="flex-1 py-4 rounded-xl border border-neutral-200 font-bold text-neutral-600 hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
                                 >
                                     Refazer

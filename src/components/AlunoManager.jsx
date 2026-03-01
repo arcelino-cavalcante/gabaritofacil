@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { listarAlunosPorTurma, salvarAluno, excluirAluno } from '../db';
+import { listarAlunosPorTurma, salvarAluno, excluirAluno, listarNotasPorAluno } from '../db';
 import { useModal } from '../contexts/ModalContext';
 
 // Icons
@@ -11,7 +11,8 @@ const Icons = {
     Upload: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>,
     Download: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
     User: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
-    Search: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+    Search: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>,
+    Chart: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
 };
 
 const AlunoManager = ({ turma, onBack }) => {
@@ -29,9 +30,28 @@ const AlunoManager = ({ turma, onBack }) => {
     const carregarAlunos = async () => {
         try {
             const lista = await listarAlunosPorTurma(turma.id);
-            // Ordenar por nome
             lista.sort((a, b) => a.nome.localeCompare(b.nome));
-            setAlunos(lista);
+
+            // Para cada aluno, buscar as notas para exibir um mini-dashboard
+            const listaComNotas = await Promise.all(lista.map(async (aluno) => {
+                const notas = await listarNotasPorAluno(aluno.id);
+                // Ordenar notas por data
+                notas.sort((a, b) => new Date(b.data) - new Date(a.data));
+
+                const ultimaNota = notas.length > 0 ? notas[0].nota : null;
+                const media = notas.length > 0
+                    ? notas.reduce((acc, curr) => acc + curr.nota, 0) / notas.length
+                    : null;
+
+                return {
+                    ...aluno,
+                    totalGabaritos: notas.length,
+                    ultimaNota,
+                    media
+                };
+            }));
+
+            setAlunos(listaComNotas);
         } catch (error) {
             console.error('Erro ao carregar alunos:', error);
         }
@@ -65,6 +85,27 @@ const AlunoManager = ({ turma, onBack }) => {
         }
     };
 
+    const baixarCSVNotasTurma = () => {
+        let csvContent = "\uFEFF"; // BOM
+        csvContent += "Nº,Nome do Estudante,Provas Realizadas,Última Nota,Média Geral\n";
+
+        alunos.forEach((a, index) => {
+            const provas = a.totalGabaritos || 0;
+            const ultima = a.ultimaNota !== null ? a.ultimaNota.toFixed(1) : '-';
+            const media = a.media !== null ? a.media.toFixed(1) : '-';
+
+            csvContent += `${index + 1},"${a.nome}",${provas},${ultima},${media}\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `Notas_Gerais_${turma.nome}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -81,12 +122,26 @@ const AlunoManager = ({ turma, onBack }) => {
                 let count = 0;
                 for (let i = 0; i < data.length; i++) {
                     const row = data[i];
-                    if (row[0] && typeof row[0] === 'string' && !row[0].includes('Nome do Aluno') && !row[0].includes('INSTRUÇÕES')) {
-                        await salvarAluno({
-                            nome: row[0],
-                            turmaId: turma.id
-                        });
-                        count++;
+
+                    if (!row || row.length === 0) continue;
+
+                    let nomeIdx = row.length > 1 ? 1 : 0;
+                    let nomeLido = row[nomeIdx];
+
+                    if (nomeLido && typeof nomeLido === 'string') {
+                        const nomeLimpo = nomeLido.trim();
+                        if (
+                            nomeLimpo.length > 0 &&
+                            !nomeLimpo.toLowerCase().includes('nome do') &&
+                            !nomeLimpo.toLowerCase().includes('estudante') &&
+                            !nomeLimpo.toLowerCase().includes('aluno')
+                        ) {
+                            await salvarAluno({
+                                nome: nomeLimpo,
+                                turmaId: turma.id
+                            });
+                            count++;
+                        }
                     }
                 }
 
@@ -95,23 +150,27 @@ const AlunoManager = ({ turma, onBack }) => {
                 setView('list');
             } catch (error) {
                 console.error('Erro ao importar:', error);
-                await showAlert('Erro ao processar arquivo.');
+                await showAlert('Erro ao processar arquivo. Certifique-se de que é um Excel válido.');
             }
         };
         reader.readAsBinaryString(file);
     };
 
     const baixarModelo = () => {
-        const ws = XLSX.utils.aoa_to_sheet([
-            ['Nome do Aluno'],
-            ['João Silva'],
-            ['Maria Santos'],
-            [''],
-            ['⚠️ INSTRUÇÕES: Apague os exemplos acima e insira os nomes reais na primeira coluna.']
-        ]);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Alunos");
-        XLSX.writeFile(wb, `modelo_importacao_${turma.nome}.xlsx`);
+        let csvContent = "\uFEFF";
+        csvContent += "Nº,Nome do Estudante\n";
+
+        for (let i = 1; i <= 50; i++) {
+            csvContent += `${i},\n`;
+        }
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Planilha_Alunos_${turma.nome}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     const filteredAlunos = alunos.filter(a =>
@@ -185,7 +244,7 @@ const AlunoManager = ({ turma, onBack }) => {
                             </div>
 
                             <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm">
-                                <div className="relative">
+                                <div className="relative mb-3">
                                     <input
                                         type="text"
                                         placeholder="Buscar aluno..."
@@ -197,6 +256,14 @@ const AlunoManager = ({ turma, onBack }) => {
                                         <Icons.Search />
                                     </div>
                                 </div>
+
+                                {/* Export All Grades Button */}
+                                <button
+                                    onClick={baixarCSVNotasTurma}
+                                    className="w-full bg-white border border-orange-200 text-orange-600 hover:bg-orange-50 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Icons.Chart /> Exportar Desempenho (CSV)
+                                </button>
                             </div>
                         </div>
 
@@ -224,7 +291,23 @@ const AlunoManager = ({ turma, onBack }) => {
                                                     </span>
                                                     <div>
                                                         <p className="font-semibold text-neutral-800">{aluno.nome}</p>
-                                                        <p className="text-[10px] text-neutral-400 uppercase">ID: {aluno.id.slice(0, 8)}</p>
+                                                        <div className="flex items-center gap-2 mt-1">
+                                                            {aluno.totalGabaritos > 0 ? (
+                                                                <>
+                                                                    <span className="text-[10px] font-bold bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full">
+                                                                        Média: {aluno.media.toFixed(1)}
+                                                                    </span>
+                                                                    <span className="text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-full">
+                                                                        Última Nota: {aluno.ultimaNota.toFixed(1)}
+                                                                    </span>
+                                                                    <span className="text-[10px] text-neutral-400">
+                                                                        ({aluno.totalGabaritos} provas)
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-[10px] bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">Nenhuma nota lida</span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <button

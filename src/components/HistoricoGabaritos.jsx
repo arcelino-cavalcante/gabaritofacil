@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { jsPDF } from 'jspdf';
 import { listarGabaritos, excluirGabarito, duplicarGabarito, listarTurmas, listarAlunosPorTurma, listarCabecalhos, salvarGabarito } from '../db';
-import { gerarPDFGabarito } from '../utils/pdfGenerator';
+// A Geração de PDF agora é feita 100% via API Vetorial no Backend Python
+// As importações jsPDF / pdfGenerator não são mais necessárias
 import DownloadOptionsModal from './DownloadOptionsModal';
 import GabaritoViewModal from './GabaritoViewModal';
 import { useModal } from '../contexts/ModalContext';
@@ -168,16 +168,41 @@ const HistoricoGabaritos = ({ onBack, onSelectGabarito, onNavigate, onCriarParaT
 
         try {
             const gabarito = gabaritoToDownload;
-            const turma = turmas.find(t => t.id === gabarito.turmaId);
-            const cabecalho = cabecalhos.find(c => c.id === gabarito.cabecalhoId);
+            const tNome = getNomeTurma(gabarito.turmaId);
+            const numQuestoes = gabarito.questoes ? gabarito.questoes.length : 20;
 
             let alunos = [];
-            if (gabarito.tipo === 'nominal' && gabarito.turmaId) {
+            if (gabarito.turmaId) {
+                const { listarAlunosPorTurma } = await import('../db');
                 alunos = await listarAlunosPorTurma(gabarito.turmaId);
             }
 
-            const doc = gerarPDFGabarito(gabarito, turma, alunos, cabecalho, layout);
-            doc.save(`Gabarito_${gabarito.nome}_${layout}x.pdf`);
+            const apiUrl = import.meta.env.VITE_API_URL || '';
+            const relativeUrl = apiUrl.endsWith('/api') ? apiUrl : '/api';
+
+            const response = await fetch(`${relativeUrl}/omr/gerar-pdf`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    turma_nome: tNome,
+                    gabarito_id: gabarito.id,
+                    num_questoes: numQuestoes,
+                    layout: layout,
+                    alunos: alunos.map(a => ({ id: a.id, nome: a.nome }))
+                })
+            });
+
+            if (!response.ok) throw new Error("Erro na geração do PDF");
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Gabarito_${gabarito.nome}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
 
         } catch (error) {
             console.error("Erro ao baixar PDF:", error);
@@ -319,45 +344,47 @@ const HistoricoGabaritos = ({ onBack, onSelectGabarito, onNavigate, onCriarParaT
                                 </p>
 
                                 {/* Action Buttons Row */}
-                                <div className="flex items-center gap-2 mt-1" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex flex-col gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
                                     <button
                                         onClick={() => onSelectGabarito(gabarito)}
-                                        className="flex-1 bg-orange-600 text-white text-sm font-bold py-2.5 rounded-xl shadow-sm hover:bg-orange-700 flex items-center justify-center gap-2 transition-colors active:bg-orange-800"
+                                        className="w-full bg-orange-600 text-white text-sm font-bold py-2.5 rounded-xl shadow-sm hover:bg-orange-700 flex items-center justify-center gap-2 transition-colors active:bg-orange-800"
                                     >
                                         <IconPlay /> Corrigir Agora
                                     </button>
 
-                                    <button
-                                        onClick={(e) => handleExcluir(gabarito.id, e)}
-                                        className="w-12 h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-black hover:border-red-200 hover:bg-red-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
-                                        title="Excluir"
-                                    >
-                                        <IconTrash />
-                                    </button>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        <button
+                                            onClick={(e) => handleViewClick(gabarito, e)}
+                                            className="w-full h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-orange-600 hover:border-orange-200 hover:bg-orange-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
+                                            title="Ver Respostas e Notas"
+                                        >
+                                            <IconEye />
+                                        </button>
 
-                                    <button
-                                        onClick={(e) => handleViewClick(gabarito, e)}
-                                        className="w-12 h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-orange-600 hover:border-orange-200 hover:bg-orange-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
-                                        title="Ver Respostas"
-                                    >
-                                        <IconEye />
-                                    </button>
+                                        <button
+                                            onClick={(e) => handleCloneClick(gabarito, e)}
+                                            className="w-full h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-orange-600 hover:border-orange-200 hover:bg-orange-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
+                                            title="Clonar para Turma"
+                                        >
+                                            <IconDuplicate />
+                                        </button>
 
-                                    <button
-                                        onClick={(e) => handleCloneClick(gabarito, e)}
-                                        className="w-12 h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-orange-600 hover:border-orange-200 hover:bg-orange-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
-                                        title="Clonar para Turma"
-                                    >
-                                        <IconDuplicate />
-                                    </button>
+                                        <button
+                                            onClick={(e) => handleDownloadClick(gabarito, e)}
+                                            className="w-full h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-orange-600 hover:border-orange-200 hover:bg-orange-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
+                                            title="Baixar PDF"
+                                        >
+                                            <IconDownload />
+                                        </button>
 
-                                    <button
-                                        onClick={(e) => handleDownloadClick(gabarito, e)}
-                                        className="w-12 h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-orange-600 hover:border-orange-200 hover:bg-orange-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
-                                        title="Baixar PDF"
-                                    >
-                                        <IconDownload />
-                                    </button>
+                                        <button
+                                            onClick={(e) => handleExcluir(gabarito.id, e)}
+                                            className="w-full h-10 bg-white border border-neutral-200 text-neutral-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 rounded-xl flex items-center justify-center transition-colors shadow-sm"
+                                            title="Excluir"
+                                        >
+                                            <IconTrash />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
