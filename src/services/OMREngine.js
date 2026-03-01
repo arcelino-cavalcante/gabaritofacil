@@ -207,11 +207,39 @@ export const OMREngine = {
     async scanAndRead(sourceElement, gabarito) {
         const numQ = gabarito.questoes ? gabarito.questoes.length : 20;
 
-        // 1. Capturar frame para Canvas
-        const MAX_W = 1200;
-        const canvas = document.createElement('canvas');
         const origW = sourceElement.videoWidth || sourceElement.width || 1280;
         const origH = sourceElement.videoHeight || sourceElement.height || 720;
+
+        // 1. Tentar ler o QR Code primeiro com a maior resolução possível (MAX 1920)
+        let qrDict = null;
+        try {
+            const qrMaxW = 1920;
+            const qrSc = origW > qrMaxW ? qrMaxW / origW : 1;
+            const qrW = Math.round(origW * qrSc);
+            const qrH = Math.round(origH * qrSc);
+
+            const qrCanvas = document.createElement('canvas');
+            qrCanvas.width = qrW;
+            qrCanvas.height = qrH;
+            const qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true });
+
+            // Aumentar contraste para facilitar detecção do QR Code
+            qrCtx.filter = 'contrast(1.3) grayscale(1)';
+            qrCtx.drawImage(sourceElement, 0, 0, qrW, qrH);
+
+            const qrImageData = qrCtx.getImageData(0, 0, qrW, qrH);
+
+            // attemptBoth garante que se a folha estiver com sombra pesada (parecendo invertida), ele leia
+            const code = jsQR(qrImageData.data, qrW, qrH, { inversionAttempts: "attemptBoth" });
+
+            if (code && code.data) {
+                try { qrDict = JSON.parse(code.data); } catch (e) { /* ok */ }
+            }
+        } catch (e) { console.warn("Erro ao ler QR Code", e); }
+
+        // 2. Capturar frame para Processamento OMR (limitado a 1200px para performance extrema das bolinhas)
+        const MAX_W = 1200;
+        const canvas = document.createElement('canvas');
         const sc = origW > MAX_W ? MAX_W / origW : 1;
 
         canvas.width = Math.round(origW * sc);
@@ -221,13 +249,6 @@ export const OMREngine = {
 
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const { width: W, height: H } = imageData;
-
-        // 2. QR Code (informativo)
-        let qrDict = null;
-        try {
-            const code = jsQR(imageData.data, W, H, { inversionAttempts: "dontInvert" });
-            if (code && code.data) { try { qrDict = JSON.parse(code.data); } catch (e) { /* ok */ } }
-        } catch (e) { /* ok */ }
 
         // 3. Grayscale + Threshold
         const gray = toGrayscale(imageData.data, W * H);
