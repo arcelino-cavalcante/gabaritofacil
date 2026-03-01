@@ -33,7 +33,7 @@ export const OMRService = {
         formData.append('num_questoes', gabarito.questoes ? gabarito.questoes.length : 20);
 
         try {
-            const apiUrl = import.meta.env.VITE_API_URL || window.location.origin;
+            const apiUrl = import.meta.env.VITE_API_URL || '';
             const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
             const fullUrl = baseUrl ? `${baseUrl}/api/omr/corrigir` : '/api/omr/corrigir';
 
