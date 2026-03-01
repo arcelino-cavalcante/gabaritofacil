@@ -24,6 +24,10 @@ class GabaritoPDFRequest(BaseModel):
     layout: int = 1
     alunos: List[AlunoItem] = []
 
+@router.options("/gerar-pdf")
+def options_gerar_gabarito_pdf():
+    return JSONResponse(status_code=200, content="OK")
+
 @router.post("/gerar-pdf")
 def gerar_gabarito_pdf(req: GabaritoPDFRequest):
     """
@@ -47,6 +51,10 @@ def gerar_gabarito_pdf(req: GabaritoPDFRequest):
         'Content-Disposition': f'attachment; filename="Gabarito_{req.turma_nome}_{tipo_nome}.pdf"'
     }
     return StreamingResponse(pdf_buffer, media_type='application/pdf', headers=headers)
+
+@router.options("/corrigir")
+async def options_processar_imagem_omr():
+    return JSONResponse(status_code=200, content="OK")
 
 @router.post("/corrigir")
 async def processar_imagem_omr(
