@@ -100,7 +100,31 @@ export const OMREngine = {
             console.error("Erro leitura QR Code pre-cv", e);
         }
 
-        let src = cv.imread(sourceCanvas);
+        // Garantir que a imagem está num formato seguro para o cv.imread (Canvas 2D)
+        // E reduzir absurdos de 4K da câmera do celular para no máximo 1080p/1920p (Performance e Previsibilidade OpenCV)
+        const MAX_WIDTH = 1920;
+        let safeCanvas = document.createElement('canvas');
+        let origW = sourceCanvas.width || sourceCanvas.videoWidth;
+        let origH = sourceCanvas.height || sourceCanvas.videoHeight;
+
+        let processScale = 1.0;
+        if (origW > MAX_WIDTH) {
+            processScale = MAX_WIDTH / origW;
+        }
+
+        safeCanvas.width = origW * processScale;
+        safeCanvas.height = origH * processScale;
+
+        const sCtx = safeCanvas.getContext('2d');
+        sCtx.drawImage(sourceCanvas, 0, 0, safeCanvas.width, safeCanvas.height);
+
+        let src;
+        try {
+            src = cv.imread(safeCanvas);
+        } catch (imreadErr) {
+            console.error("Erro no cv.imread:", imreadErr);
+            throw new Error("Falha ao capturar buffer de imagem da câmera.");
+        }
         let gray = new cv.Mat();
         let blurred = new cv.Mat();
         let threshAnchors = new cv.Mat();
@@ -125,7 +149,8 @@ export const OMREngine = {
             for (let i = 0; i < contours.size(); ++i) {
                 let cnt = contours.get(i);
                 let area = cv.contourArea(cnt);
-                if (area > 80 && area < 100000) {
+                // Ampliando bastante o teto da área para admitir âncoras capturadas bem de perto em celulares HD
+                if (area > 80 && area < 500000) {
                     cntData.push({ area: area, cnt: cnt, index: i });
                 } else {
                     cnt.delete();
@@ -237,11 +262,14 @@ export const OMREngine = {
             let threshWarped = new cv.Mat();
             cv.adaptiveThreshold(blurredWarped, threshWarped, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 51, 15);
 
-            let radius_px = 12;
+            let radius_px = 11; // Reduzido de 12 para 11 para focar no "miolo" escuro e evitar esbarrões
             let areaMinima = Math.pow(2 * radius_px, 2) * 0.15;
 
             let opcoes = ['A', 'B', 'C', 'D', 'E'];
             let respostasLidas = {};
+
+            // Desenhar tela de debug por cima da imagem processada
+            let debugMat = warped.clone();
 
             for (let q = 1; q <= numQuestoes; q++) {
                 let col = Math.floor((q - 1) / 20);
@@ -266,7 +294,7 @@ export const OMREngine = {
                     let rect = new cv.Rect(xMin, yMin, xMax - xMin, yMax - yMin);
                     let roi = threshWarped.roi(rect);
                     let totalPixels = cv.countNonZero(roi);
-                    somas.push({ count: totalPixels, op: op });
+                    somas.push({ count: totalPixels, op: op, center: { x: bxPx, y: yPx } });
                     roi.delete();
                 }
 
@@ -284,7 +312,36 @@ export const OMREngine = {
                 } else {
                     respostasLidas[q.toString()] = "Branco";
                 }
+
+                // Pintar Feedback de cor no Debug Mat
+                const ptCenter = new cv.Point(somas[0].center.x, somas[0].center.y);
+                const gabCorreta = gabarito.questoes[q - 1].correct;
+                let markColor;
+
+                if (respostasLidas[q.toString()] === "Anulada") {
+                    markColor = new cv.Scalar(255, 255, 0, 255); // Amarelo
+                } else if (respostasLidas[q.toString()] === "Branco") {
+                    markColor = new cv.Scalar(255, 0, 0, 255); // Azul (Lido como branco/vazio pela camera)
+                } else if (respostasLidas[q.toString()] === gabCorreta) {
+                    markColor = new cv.Scalar(0, 255, 0, 255); // Verde absoluto (correta)
+                } else {
+                    markColor = new cv.Scalar(0, 0, 255, 255); // Vermelho absoluto (errada)
+                }
+
+                // Só pinta a bolinha principal lida, ou as duas se anulada
+                if (respostasLidas[q.toString()] === "Anulada") {
+                    cv.circle(debugMat, ptCenter, radius_px + 2, markColor, 3);
+                    cv.circle(debugMat, new cv.Point(somas[1].center.x, somas[1].center.y), radius_px + 2, markColor, 3);
+                } else {
+                    cv.circle(debugMat, ptCenter, radius_px + 2, markColor, 3);
+                }
             }
+
+            // Exportar imagem de debug em base64 usando canvas auxiliar
+            let outCanvas = document.createElement('canvas');
+            cv.imshow(outCanvas, debugMat);
+            const debugImageUrl = outCanvas.toDataURL('image/jpeg', 0.8);
+            debugMat.delete();
 
             // Cleanup Mats
             src.delete(); gray.delete(); blurred.delete(); threshAnchors.delete(); hierarchy.delete();

@@ -42,23 +42,23 @@ const Scanner = ({ gabarito, onBack }) => {
 
     const iniciarCamera = async () => {
         try {
-            // Tentar solicitar resolução 4K ou Full HD no mínimo, e câmera traseira
+            // Tentar solicitar resolução Full HD (Alta o suficiente para OMR, leve o suficiente para não travar JS)
             const constraints = {
                 video: {
-                    facingMode: { exact: "environment" }, // Tenta forçar traseira
-                    width: { ideal: 3840, min: 1920 },    // 4K preferido, 1080p mínimo
-                    height: { ideal: 2160, min: 1080 },
-                    focusMode: 'continuous',              // Tenta focar continuamente
-                    exposureMode: 'continuous'            // Tenta ajustar luz automaticamente
+                    facingMode: { ideal: "environment" },
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                    focusMode: 'continuous',
+                    exposureMode: 'continuous'
                 }
             };
 
-            // Fallback se "exact environment" falhar (comum em desktops)
+            // Fallback se "exact environment" falhar
             let mediaStream;
             try {
                 mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
             } catch (e) {
-                console.warn("Câmera traseira exata falhou, tentando modo geral...", e);
+                console.warn("Câmera traseira ideal falhou, tentando modo geral minimizado...", e);
                 try {
                     mediaStream = await navigator.mediaDevices.getUserMedia({
                         video: {
