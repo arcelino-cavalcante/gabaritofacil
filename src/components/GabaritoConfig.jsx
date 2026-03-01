@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { jsPDF } from 'jspdf';
+import { jsPDF as _jsPDF } from 'jspdf'; // Aliasing so it doesn't conflict
+import { PDFGenerator } from '../services/PDFGenerator';
 import { salvarGabarito, listarTurmas, listarAlunosPorTurma, salvarCabecalho, listarCabecalhos, excluirCabecalho, buscarTurma } from '../db';
 import { useModal } from '../contexts/ModalContext';
 import DownloadOptionsModal from './DownloadOptionsModal';
@@ -177,29 +180,19 @@ const GabaritoConfig = ({ modo, turmaSelecionada, onBack, onGabaritoSalvo }) => 
                 alunos = await listarAlunosPorTurma(turmaId);
             }
 
-            const apiUrl = import.meta.env.VITE_API_URL || '';
-            const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-            const fullUrl = baseUrl ? `${baseUrl}/api/omr/gerar-pdf` : '/api/omr/gerar-pdf';
+            const doc = await PDFGenerator.buildGabaritoPDF(
+                tNome,
+                alunos.map(a => ({ id: a.id, nome: a.nome })),
+                saved.id,
+                numQ,
+                layout
+            );
 
-            const response = await fetch(fullUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    turma_nome: tNome,
-                    gabarito_id: saved.id,
-                    num_questoes: numQ,
-                    layout: layout,
-                    alunos: alunos.map(a => ({ id: a.id, nome: a.nome }))
-                })
-            });
-
-            if (!response.ok) throw new Error("Erro na geração do PDF");
-
-            const blob = await response.blob();
+            const blob = doc.output('blob');
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Gabarito_${saved.nome}.pdf`;
+            a.download = `Gabaritos_${tNome || 'Avulso'}.pdf`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

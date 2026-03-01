@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PDFGenerator } from '../services/PDFGenerator';
 import { listarGabaritos, excluirGabarito, duplicarGabarito, listarTurmas, listarAlunosPorTurma, listarCabecalhos, salvarGabarito } from '../db';
 // A Geração de PDF agora é feita 100% via API Vetorial no Backend Python
 // As importações jsPDF / pdfGenerator não são mais necessárias
@@ -167,39 +168,29 @@ const HistoricoGabaritos = ({ onBack, onSelectGabarito, onNavigate, onCriarParaT
         if (!gabaritoToDownload) return;
 
         try {
+            setDownloadingPdfId(gabaritoToDownload.id);
             const gabarito = gabaritoToDownload;
             const tNome = getNomeTurma(gabarito.turmaId);
             const numQuestoes = gabarito.questoes ? gabarito.questoes.length : 20;
 
             let alunos = [];
             if (gabarito.turmaId) {
-                const { listarAlunosPorTurma } = await import('../db');
                 alunos = await listarAlunosPorTurma(gabarito.turmaId);
             }
 
-            const apiUrl = import.meta.env.VITE_API_URL || '';
-            const baseUrl = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-            const fullUrl = baseUrl ? `${baseUrl}/api/omr/gerar-pdf` : '/api/omr/gerar-pdf';
+            const doc = await PDFGenerator.buildGabaritoPDF(
+                tNome,
+                alunos.map(a => ({ id: a.id, nome: a.nome })),
+                gabarito.id,
+                numQuestoes,
+                layout
+            );
 
-            const response = await fetch(fullUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    turma_nome: tNome,
-                    gabarito_id: gabarito.id,
-                    num_questoes: numQuestoes,
-                    layout: layout,
-                    alunos: alunos.map(a => ({ id: a.id, nome: a.nome }))
-                })
-            });
-
-            if (!response.ok) throw new Error("Erro na geração do PDF");
-
-            const blob = await response.blob();
+            const blob = doc.output('blob');
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Gabarito_${gabarito.nome}.pdf`;
+            a.download = `Gabaritos_${tNome || 'Avulso'}.pdf`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
