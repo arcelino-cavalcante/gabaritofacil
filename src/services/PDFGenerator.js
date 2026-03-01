@@ -123,9 +123,9 @@ export const PDFGenerator = {
             format: 'a4'
         });
 
-        // Se a lista estiver vazia, geramos 1 em branco
+        // Se a lista estiver vazia (Gabarito Avulso), geramos a quantidade baseada no layout escolhido
         if (!alunos || alunos.length === 0) {
-            alunos = [{ id: "", nome: "" }];
+            alunos = Array(layout).fill({ id: "", nome: "" });
         }
 
         const wPage = A4_WIDTH;
