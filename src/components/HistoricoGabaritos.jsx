@@ -168,7 +168,6 @@ const HistoricoGabaritos = ({ onBack, onSelectGabarito, onNavigate, onCriarParaT
         if (!gabaritoToDownload) return;
 
         try {
-            setDownloadingPdfId(gabaritoToDownload.id);
             const gabarito = gabaritoToDownload;
             const tNome = getNomeTurma(gabarito.turmaId);
             const numQuestoes = gabarito.questoes ? gabarito.questoes.length : 20;
