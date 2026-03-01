@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { salvarNota, listarAlunosPorTurma } from '../db';
 import { useModal } from '../contexts/ModalContext';
-import { OMRService } from '../services/OMRService';
+import { OMREngine } from '../services/OMREngine';
 
 // Icons
 const Icons = {
@@ -136,7 +136,7 @@ const Scanner = ({ gabarito, onBack }) => {
                     tempCtx.drawImage(bitmap, 0, 0);
 
                     imageSource = tempCanvas;
-                    setStatusMessage("Enviando foto (" + bitmap.width + "x" + bitmap.height + ") para servidor inteligente...");
+                    setStatusMessage("Processando foto (" + bitmap.width + "x" + bitmap.height + ") na Inteligência Local...");
                 } catch (photoErr) {
                     console.warn("Falha ao usar takePhoto, fallback para video feed", photoErr);
                     imageSource = videoRef.current;
@@ -145,8 +145,8 @@ const Scanner = ({ gabarito, onBack }) => {
                 imageSource = videoRef.current;
             }
 
-            // Real OMR Processing via Backend Python
-            const result = await OMRService.scanAndRead(imageSource, gabarito);
+            // Real OMR Processing via Browser WebAssembly JS
+            const result = await OMREngine.scanAndRead(imageSource, gabarito);
 
             // Calculate score
             let acertos = 0;
@@ -175,7 +175,7 @@ const Scanner = ({ gabarito, onBack }) => {
             };
 
             setResultado(resFinal);
-            setStatusMessage("Correção HD finalizada!");
+            setStatusMessage("Correção Inteligente Finalizada!");
             if (gabarito.tipo === 'nominal') salvarSeNominal(resFinal);
 
             // Se o motor não achou a folha exibe um alerta logo em seguida
@@ -245,7 +245,7 @@ const Scanner = ({ gabarito, onBack }) => {
                 {!cameraReady && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/90 text-white gap-4">
                         <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="font-medium animate-pulse">Carregando IA de Visão...</p>
+                        <p className="font-medium animate-pulse">Iniciando IA OpenCV Local...</p>
                     </div>
                 )}
 
