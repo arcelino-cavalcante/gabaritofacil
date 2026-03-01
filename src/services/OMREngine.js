@@ -1,9 +1,22 @@
 import jsQR from 'jsqr';
 
-// Carregando o OpenCV dinamicamente pelo script tag para evitar bundle imenso do WebAssembly
 const ensureOpenCVLoaded = () => {
     return new Promise((resolve, reject) => {
-        if (window.cv && window.cv.Mat) {
+        const isReady = () => {
+            if (window.cv && window.cv.Mat) {
+                try {
+                    // Tenta criar e deletar uma Matriz. Se o WebAssembly não estiver 100% pronto, isso lança erro.
+                    const testMat = new window.cv.Mat();
+                    testMat.delete();
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+            return false;
+        };
+
+        if (isReady()) {
             resolve(window.cv);
             return;
         }
@@ -12,11 +25,11 @@ const ensureOpenCVLoaded = () => {
         if (document.getElementById(scriptId)) {
             // Script already requested, wait for it
             const check = setInterval(() => {
-                if (window.cv && window.cv.Mat) {
+                if (isReady()) {
                     clearInterval(check);
                     resolve(window.cv);
                 }
-            }, 100);
+            }, 500); // Checa a cada meio segundo para não afogar o event loop
             return;
         }
 
@@ -26,11 +39,11 @@ const ensureOpenCVLoaded = () => {
         script.src = 'https://docs.opencv.org/4.8.0/opencv.js';
         script.onload = () => {
             const check = setInterval(() => {
-                if (window.cv && window.cv.Mat) {
+                if (isReady()) {
                     clearInterval(check);
                     resolve(window.cv);
                 }
-            }, 100);
+            }, 500);
         };
         script.onerror = () => reject(new Error('Falha ao carregar OpenCV.js'));
         document.body.appendChild(script);

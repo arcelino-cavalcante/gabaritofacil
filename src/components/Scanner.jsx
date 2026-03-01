@@ -121,29 +121,10 @@ const Scanner = ({ gabarito, onBack }) => {
         setStatusMessage("Focando e Capturando...");
 
         try {
-            let imageSource;
-
-            // Se ImageCapture disponível, tirar foto em Alta Resolução
-            if (imageCapture) {
-                try {
-                    const blob = await imageCapture.takePhoto();
-                    const bitmap = await createImageBitmap(blob);
-
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = bitmap.width;
-                    tempCanvas.height = bitmap.height;
-                    const tempCtx = tempCanvas.getContext('2d');
-                    tempCtx.drawImage(bitmap, 0, 0);
-
-                    imageSource = tempCanvas;
-                    setStatusMessage("Processando foto (" + bitmap.width + "x" + bitmap.height + ") na Inteligência Local...");
-                } catch (photoErr) {
-                    console.warn("Falha ao usar takePhoto, fallback para video feed", photoErr);
-                    imageSource = videoRef.current;
-                }
-            } else {
-                imageSource = videoRef.current;
-            }
+            // Em mobile, ImageCapture.takePhoto() freqüentemente congela a thread ou retorna blobs não-suportados (iOS).
+            // A abordagem mais garantida e rápida 100% cross-browser é desenhar o frame atual do <video> num <canvas>.
+            const imageSource = videoRef.current;
+            setStatusMessage("Processando frame na Inteligência Local...");
 
             // Real OMR Processing via Browser WebAssembly JS
             const result = await OMREngine.scanAndRead(imageSource, gabarito);
