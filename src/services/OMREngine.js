@@ -1,391 +1,341 @@
 import jsQR from 'jsqr';
 
-const ensureOpenCVLoaded = () => {
-    return new Promise((resolve, reject) => {
-        const isReady = () => {
-            if (window.cv && window.cv.Mat) {
-                try {
-                    // Tenta criar e deletar uma Matriz. Se o WebAssembly não estiver 100% pronto, isso lança erro.
-                    const testMat = new window.cv.Mat();
-                    testMat.delete();
-                    return true;
-                } catch (e) {
-                    return false;
-                }
-            }
-            return false;
-        };
+// ===== MOTOR OMR 100% JAVASCRIPT PURO =====
+// Sem OpenCV WebAssembly. Usa apenas Canvas 2D API nativa do navegador.
+// Compatível com TODOS os navegadores e dispositivos móveis.
 
-        if (isReady()) {
-            resolve(window.cv);
-            return;
+// ----- Processamento de Imagem -----
+
+function toGrayscale(data, length) {
+    const gray = new Uint8Array(length);
+    for (let i = 0; i < length; i++) {
+        const o = i * 4;
+        gray[i] = (data[o] * 77 + data[o + 1] * 150 + data[o + 2] * 29) >> 8;
+    }
+    return gray;
+}
+
+function adaptiveThreshold(gray, width, height, blockSize, C) {
+    const binary = new Uint8Array(width * height);
+    const half = (blockSize - 1) >> 1;
+    const stride = width + 1;
+
+    // Integral image
+    const integral = new Float64Array(stride * (height + 1));
+    for (let y = 0; y < height; y++) {
+        let rowSum = 0;
+        for (let x = 0; x < width; x++) {
+            rowSum += gray[y * width + x];
+            integral[(y + 1) * stride + (x + 1)] = integral[y * stride + (x + 1)] + rowSum;
         }
+    }
 
-        const scriptId = 'opencv-js-script';
-        if (document.getElementById(scriptId)) {
-            // Script already requested, wait for it
-            const check = setInterval(() => {
-                if (isReady()) {
-                    clearInterval(check);
-                    resolve(window.cv);
-                }
-            }, 500); // Checa a cada meio segundo para não afogar o event loop
-            return;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const y1 = Math.max(0, y - half);
+            const y2 = Math.min(height - 1, y + half);
+            const x1 = Math.max(0, x - half);
+            const x2 = Math.min(width - 1, x + half);
+            const count = (x2 - x1 + 1) * (y2 - y1 + 1);
+            const sum = integral[(y2 + 1) * stride + (x2 + 1)]
+                - integral[y1 * stride + (x2 + 1)]
+                - integral[(y2 + 1) * stride + x1]
+                + integral[y1 * stride + x1];
+            binary[y * width + x] = gray[y * width + x] < (sum / count - C) ? 1 : 0;
         }
+    }
+    return binary;
+}
 
-        const script = document.createElement('script');
-        script.id = scriptId;
-        // Using a reliable CDN for OpenCV.js WebAssembly
-        script.src = 'https://docs.opencv.org/4.8.0/opencv.js';
-        script.onload = () => {
-            const check = setInterval(() => {
-                if (isReady()) {
-                    clearInterval(check);
-                    resolve(window.cv);
-                }
-            }, 500);
-        };
-        script.onerror = () => reject(new Error('Falha ao carregar OpenCV.js'));
-        document.body.appendChild(script);
-    });
-};
+// ----- Detecção de Âncoras -----
 
-const orderPoints = (cv, ptsArray) => {
-    // ptsArray is an array of {x, y}
-    // Sort logic from Python order_points
+function findAnchorInRegion(binary, imgW, rX, rY, rW, rH, minArea, maxArea) {
+    const visited = new Uint8Array(rW * rH);
+    let best = null;
 
-    // Top-left will have the smallest sum, bottom-right will have the largest sum
-    const sums = ptsArray.map(p => p.x + p.y);
-    const tlIndex = sums.indexOf(Math.min(...sums));
-    const brIndex = sums.indexOf(Math.max(...sums));
+    for (let ry = 0; ry < rH; ry++) {
+        for (let rx = 0; rx < rW; rx++) {
+            const li = ry * rW + rx;
+            if (visited[li]) continue;
+            if (binary[(rY + ry) * imgW + (rX + rx)] !== 1) continue;
 
-    // Top-right will have the smallest difference, bottom-left will have the largest difference
-    const diffs = ptsArray.map(p => p.y - p.x);
-    const trIndex = diffs.indexOf(Math.min(...diffs));
-    const blIndex = diffs.indexOf(Math.max(...diffs));
+            // BFS flood fill
+            const queue = [[rx, ry]];
+            visited[li] = 1;
+            let head = 0, sumX = 0, sumY = 0;
+            let bx1 = rx, bx2 = rx, by1 = ry, by2 = ry;
 
-    return [
-        ptsArray[tlIndex],
-        ptsArray[trIndex],
-        ptsArray[brIndex],
-        ptsArray[blIndex]
-    ];
-};
+            while (head < queue.length) {
+                const [cx, cy] = queue[head++];
+                sumX += cx; sumY += cy;
+                if (cx < bx1) bx1 = cx; if (cx > bx2) bx2 = cx;
+                if (cy < by1) by1 = cy; if (cy > by2) by2 = cy;
 
-const getEuclidean = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-
-export const OMREngine = {
-    isLoaded: false,
-
-    async init() {
-        if (!this.isLoaded) {
-            await ensureOpenCVLoaded();
-            this.isLoaded = true;
-        }
-    },
-
-    /**
-     * Motor principal OMR Frontend em JavaScript.
-     */
-    async scanAndRead(sourceCanvas, gabarito) {
-        await this.init();
-        const cv = window.cv;
-
-        const numQuestoes = gabarito.questoes ? gabarito.questoes.length : 20;
-
-        // Leitura inicial para o QR Code via jsQR (Pois o CV WebAssembly nao embute o detector confiavelmente)
-        let qrCodeData = null;
-        let qrDict = null;
-
-        try {
-            const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
-            const imgData = ctx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-            const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
-
-            if (code && code.data) {
-                try {
-                    qrDict = JSON.parse(code.data);
-                } catch (e) {
-                    console.warn("QR não é um JSON válido", code.data);
-                }
-            }
-        } catch (e) {
-            console.error("Erro leitura QR Code pre-cv", e);
-        }
-
-        // Garantir que a imagem está num formato seguro para o cv.imread (Canvas 2D)
-        // E reduzir absurdos de 4K da câmera do celular para no máximo 1080p/1920p (Performance e Previsibilidade OpenCV)
-        const MAX_WIDTH = 1920;
-        let safeCanvas = document.createElement('canvas');
-        let origW = sourceCanvas.width || sourceCanvas.videoWidth;
-        let origH = sourceCanvas.height || sourceCanvas.videoHeight;
-
-        let processScale = 1.0;
-        if (origW > MAX_WIDTH) {
-            processScale = MAX_WIDTH / origW;
-        }
-
-        safeCanvas.width = origW * processScale;
-        safeCanvas.height = origH * processScale;
-
-        const sCtx = safeCanvas.getContext('2d');
-        sCtx.drawImage(sourceCanvas, 0, 0, safeCanvas.width, safeCanvas.height);
-
-        let src;
-        try {
-            src = cv.imread(safeCanvas);
-        } catch (imreadErr) {
-            console.error("Erro no cv.imread:", imreadErr);
-            throw new Error("Falha ao capturar buffer de imagem da câmera.");
-        }
-        let gray = new cv.Mat();
-        let blurred = new cv.Mat();
-        let threshAnchors = new cv.Mat();
-        let contours = new cv.MatVector();
-        let hierarchy = new cv.Mat();
-
-        try {
-            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-            let ksize = new cv.Size(5, 5);
-            cv.GaussianBlur(gray, blurred, ksize, 0, 0, cv.BORDER_DEFAULT);
-
-            // Threshold Adaptativo
-            cv.adaptiveThreshold(blurred, threshAnchors, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 51, 15);
-
-            // cv.findContours modifica a imagem, entao passamos um clone
-            let threshClone = threshAnchors.clone();
-            cv.findContours(threshClone, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-            threshClone.delete();
-
-            // Array para classificar os contornos
-            let cntData = [];
-            for (let i = 0; i < contours.size(); ++i) {
-                let cnt = contours.get(i);
-                let area = cv.contourArea(cnt);
-                // Ampliando bastante o teto da área para admitir âncoras capturadas bem de perto em celulares HD
-                if (area > 80 && area < 500000) {
-                    cntData.push({ area: area, cnt: cnt, index: i });
-                } else {
-                    cnt.delete();
-                }
-            }
-
-            // Ordena descrescente por area
-            cntData.sort((a, b) => b.area - a.area);
-
-            let ancorasCandidatas = [];
-
-            for (let i = 0; i < cntData.length; i++) {
-                let cnt = cntData[i].cnt;
-                let area = cntData[i].area;
-
-                let peri = cv.arcLength(cnt, true);
-                let approx = new cv.Mat();
-                cv.approxPolyDP(cnt, approx, 0.05 * peri, true);
-
-                if (approx.rows >= 4 && approx.rows <= 8) {
-                    let rect = cv.boundingRect(approx);
-                    let aspectRatio = rect.width / rect.height;
-
-                    let hull = new cv.Mat();
-                    cv.convexHull(cnt, hull, false, true);
-                    let hullArea = cv.contourArea(hull);
-                    let solidity = hullArea > 0 ? area / hullArea : 0;
-                    hull.delete();
-
-                    if (aspectRatio >= 0.5 && aspectRatio <= 1.8 && solidity > 0.7) {
-                        let M = cv.moments(cnt);
-                        if (M.m00 !== 0) {
-                            let cx = M.m10 / M.m00;
-                            let cy = M.m01 / M.m00;
-                            ancorasCandidatas.push({ x: cx, y: cy });
-
-                            if (ancorasCandidatas.length === 4) {
-                                approx.delete();
-                                break;
-                            }
+                for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+                    const nx = cx + dx, ny = cy + dy;
+                    if (nx >= 0 && nx < rW && ny >= 0 && ny < rH) {
+                        const ni = ny * rW + nx;
+                        if (!visited[ni] && binary[(rY + ny) * imgW + (rX + nx)] === 1) {
+                            visited[ni] = 1;
+                            queue.push([nx, ny]);
                         }
                     }
                 }
-                approx.delete();
             }
 
-            let trustedArea = false;
-            let docPtsRect = null;
+            const area = queue.length;
+            if (area < minArea || area > maxArea) continue;
 
-            if (ancorasCandidatas.length === 4) {
-                let ordered = orderPoints(cv, ancorasCandidatas);
+            const bw = bx2 - bx1 + 1, bh = by2 - by1 + 1;
+            const ar = bw / bh;
+            const solidity = area / (bw * bh);
 
-                let tl = ordered[0], tr = ordered[1], br = ordered[2], bl = ordered[3];
-                let widthA = getEuclidean(br, bl);
-                let widthB = getEuclidean(tr, tl);
-                let maxWidth = Math.max(widthA, widthB);
-
-                let heightA = getEuclidean(tr, br);
-                let heightB = getEuclidean(tl, bl);
-                let maxHeight = Math.max(heightA, heightB);
-
-                let proportao = maxWidth > 0 ? (maxHeight / maxWidth) : 0;
-
-                if (proportao > 1.0 && proportao < 1.7) {
-                    docPtsRect = ordered;
-                    trustedArea = true;
+            if (ar >= 0.5 && ar <= 2.0 && solidity > 0.55) {
+                if (!best || area > best.area) {
+                    best = { area, cx: rX + sumX / area, cy: rY + sumY / area };
                 }
             }
-
-            // === WARP PERSPECTIVE ===
-            let w_px = 840;
-            let h_px = 1188;
-            let warped = new cv.Mat();
-            let M_transform = null;
-
-            if (docPtsRect !== null && trustedArea) {
-                let m_px = 15 * 4; // 60px
-
-                let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                    docPtsRect[0].x, docPtsRect[0].y,
-                    docPtsRect[1].x, docPtsRect[1].y,
-                    docPtsRect[2].x, docPtsRect[2].y,
-                    docPtsRect[3].x, docPtsRect[3].y
-                ]);
-
-                let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                    m_px, m_px,
-                    w_px - m_px, m_px,
-                    w_px - m_px, h_px - m_px,
-                    m_px, h_px - m_px
-                ]);
-
-                M_transform = cv.getPerspectiveTransform(srcTri, dstTri);
-                let dsize = new cv.Size(w_px, h_px);
-                cv.warpPerspective(gray, warped, M_transform, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
-
-                srcTri.delete();
-                dstTri.delete();
-            } else {
-                let dsize = new cv.Size(w_px, h_px);
-                cv.resize(gray, warped, dsize, 0, 0, cv.INTER_AREA);
-            }
-
-            // Extração de bolinhas
-            let blurredWarped = new cv.Mat();
-            let ksizeWarp = new cv.Size(5, 5);
-            cv.GaussianBlur(warped, blurredWarped, ksizeWarp, 0, 0, cv.BORDER_DEFAULT);
-
-            let threshWarped = new cv.Mat();
-            cv.adaptiveThreshold(blurredWarped, threshWarped, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 51, 15);
-
-            let radius_px = 11; // Reduzido de 12 para 11 para focar no "miolo" escuro e evitar esbarrões
-            let areaMinima = Math.pow(2 * radius_px, 2) * 0.15;
-
-            let opcoes = ['A', 'B', 'C', 'D', 'E'];
-            let respostasLidas = {};
-
-            // Desenhar tela de debug por cima da imagem processada
-            let debugMat = warped.clone();
-
-            for (let q = 1; q <= numQuestoes; q++) {
-                let col = Math.floor((q - 1) / 20);
-                let row = (q - 1) % 20;
-
-                let yCenterMM = 75 + (row * 7);
-                let xBaseMM = 25 + (col * 40);
-
-                let somas = [];
-                for (let idx = 0; idx < opcoes.length; idx++) {
-                    let op = opcoes[idx];
-                    let bxMM = xBaseMM + 10 + (idx * 6);
-
-                    let bxPx = Math.floor(bxMM * 4);
-                    let yPx = Math.floor(yCenterMM * 4);
-
-                    let xMin = Math.max(0, bxPx - radius_px);
-                    let xMax = Math.min(w_px, bxPx + radius_px);
-                    let yMin = Math.max(0, yPx - radius_px);
-                    let yMax = Math.min(h_px, yPx + radius_px);
-
-                    let rect = new cv.Rect(xMin, yMin, xMax - xMin, yMax - yMin);
-                    let roi = threshWarped.roi(rect);
-                    let totalPixels = cv.countNonZero(roi);
-                    somas.push({ count: totalPixels, op: op, center: { x: bxPx, y: yPx } });
-                    roi.delete();
-                }
-
-                somas.sort((a, b) => b.count - a.count);
-                let maiorCount = somas[0].count;
-                let opEscolhida = somas[0].op;
-
-                if (maiorCount > areaMinima) {
-                    let segundoCount = somas.length > 1 ? somas[1].count : 0;
-                    if (segundoCount > maiorCount * 0.85) {
-                        respostasLidas[q.toString()] = "Anulada";
-                    } else {
-                        respostasLidas[q.toString()] = opEscolhida;
-                    }
-                } else {
-                    respostasLidas[q.toString()] = "Branco";
-                }
-
-                // Pintar Feedback de cor no Debug Mat
-                const ptCenter = new cv.Point(somas[0].center.x, somas[0].center.y);
-                const gabCorreta = gabarito.questoes[q - 1].correct;
-                let markColor;
-
-                if (respostasLidas[q.toString()] === "Anulada") {
-                    markColor = new cv.Scalar(255, 255, 0, 255); // Amarelo
-                } else if (respostasLidas[q.toString()] === "Branco") {
-                    markColor = new cv.Scalar(255, 0, 0, 255); // Azul (Lido como branco/vazio pela camera)
-                } else if (respostasLidas[q.toString()] === gabCorreta) {
-                    markColor = new cv.Scalar(0, 255, 0, 255); // Verde absoluto (correta)
-                } else {
-                    markColor = new cv.Scalar(0, 0, 255, 255); // Vermelho absoluto (errada)
-                }
-
-                // Só pinta a bolinha principal lida, ou as duas se anulada
-                if (respostasLidas[q.toString()] === "Anulada") {
-                    cv.circle(debugMat, ptCenter, radius_px + 2, markColor, 3);
-                    cv.circle(debugMat, new cv.Point(somas[1].center.x, somas[1].center.y), radius_px + 2, markColor, 3);
-                } else {
-                    cv.circle(debugMat, ptCenter, radius_px + 2, markColor, 3);
-                }
-            }
-
-            // Exportar imagem de debug em base64 usando canvas auxiliar
-            let outCanvas = document.createElement('canvas');
-            cv.imshow(outCanvas, debugMat);
-            const debugImageUrl = outCanvas.toDataURL('image/jpeg', 0.8);
-            debugMat.delete();
-
-            // Cleanup Mats
-            src.delete(); gray.delete(); blurred.delete(); threshAnchors.delete(); hierarchy.delete();
-            for (let cnt of cntData) cnt.cnt.delete();
-            warped.delete(); blurredWarped.delete(); threshWarped.delete();
-            if (M_transform) M_transform.delete();
-
-            // Mapeando do formato da API pro frontend original logicamente
-            const answers = [];
-            for (let i = 0; i < gabarito.questoes.length; i++) {
-                const q = gabarito.questoes[i];
-                const readChar = respostasLidas[q.id.toString()] || "Branco";
-                answers.push({
-                    id: q.id,
-                    read: readChar,
-                    correct: q.correct,
-                    status: readChar === q.correct ? 'correct' : 'wrong'
-                });
-            }
-
-            return {
-                answers: answers,
-                totalQuestions: gabarito.questoes.length,
-                trustedArea: trustedArea,
-                debugImage: null,
-                qrCodeData: qrDict
-            };
-
-        } catch (error) {
-            console.error("OpenCV OMR JS falhou: ", error);
-            throw new Error("Erro na correção via OpenCV.js: " + error.message);
         }
+    }
+    return best;
+}
+
+function findAnchors(binary, w, h) {
+    const mW = Math.floor(w * 0.35), mH = Math.floor(h * 0.35);
+    const minA = Math.max(30, Math.floor(w * h * 0.0003));
+    const maxA = Math.floor(w * h * 0.05);
+
+    const corners = [
+        { k: 'TL', x: 0, y: 0, w: mW, h: mH },
+        { k: 'TR', x: w - mW, y: 0, w: mW, h: mH },
+        { k: 'BL', x: 0, y: h - mH, w: mW, h: mH },
+        { k: 'BR', x: w - mW, y: h - mH, w: mW, h: mH }
+    ];
+
+    const res = {};
+    for (const c of corners) {
+        const b = findAnchorInRegion(binary, w, c.x, c.y, c.w, c.h, minA, maxA);
+        if (b) res[c.k] = { x: b.cx, y: b.cy };
+    }
+    return res;
+}
+
+// ----- Homografia (Perspectiva) -----
+
+function solveLinear8(A, b) {
+    const n = 8;
+    const aug = A.map((row, i) => [...row, b[i]]);
+    for (let col = 0; col < n; col++) {
+        let mx = Math.abs(aug[col][col]), mr = col;
+        for (let r = col + 1; r < n; r++) {
+            if (Math.abs(aug[r][col]) > mx) { mx = Math.abs(aug[r][col]); mr = r; }
+        }
+        [aug[col], aug[mr]] = [aug[mr], aug[col]];
+        if (Math.abs(aug[col][col]) < 1e-12) return null;
+        for (let r = col + 1; r < n; r++) {
+            const f = aug[r][col] / aug[col][col];
+            for (let j = col; j <= n; j++) aug[r][j] -= f * aug[col][j];
+        }
+    }
+    const x = new Array(n);
+    for (let i = n - 1; i >= 0; i--) {
+        x[i] = aug[i][n];
+        for (let j = i + 1; j < n; j++) x[i] -= aug[i][j] * x[j];
+        x[i] /= aug[i][i];
+    }
+    return x;
+}
+
+function computeHomography(idealPts, camPts) {
+    const M = [], b = [];
+    for (let i = 0; i < 4; i++) {
+        const { x: ix, y: iy } = idealPts[i];
+        const { x: cx, y: cy } = camPts[i];
+        M.push([ix, iy, 1, 0, 0, 0, -ix * cx, -iy * cx]); b.push(cx);
+        M.push([0, 0, 0, ix, iy, 1, -ix * cy, -iy * cy]); b.push(cy);
+    }
+    const h = solveLinear8(M, b);
+    if (!h) return null;
+    return [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1]];
+}
+
+function mapPt(H, x, y) {
+    const w = H[2][0] * x + H[2][1] * y + H[2][2];
+    return { x: (H[0][0] * x + H[0][1] * y + H[0][2]) / w, y: (H[1][0] * x + H[1][1] * y + H[1][2]) / w };
+}
+
+// ----- Leitura de Bolinhas -----
+
+function sampleDark(binary, w, h, cx, cy, r) {
+    let count = 0;
+    const ri = Math.round(r);
+    for (let dy = -ri; dy <= ri; dy++) {
+        for (let dx = -ri; dx <= ri; dx++) {
+            if (dx * dx + dy * dy > ri * ri) continue;
+            const px = Math.round(cx + dx), py = Math.round(cy + dy);
+            if (px >= 0 && px < w && py >= 0 && py < h && binary[py * w + px] === 1) count++;
+        }
+    }
+    return count;
+}
+
+// ----- Constantes do Gabarito (mm) -----
+
+const IDEAL_ANCHORS = [
+    { x: 15, y: 15 },   // TL
+    { x: 195, y: 15 },  // TR
+    { x: 195, y: 282 }, // BR
+    { x: 15, y: 282 }   // BL
+];
+
+const BL = {
+    startX: 25, startY: 75,
+    qSpacingY: 7, colSpacingX: 40,
+    optOffset: 10, optSpacing: 6,
+    bubbleR: 2, qPerCol: 20
+};
+
+const OPTS = ['A', 'B', 'C', 'D', 'E'];
+
+// ----- Motor Principal -----
+
+export const OMREngine = {
+    isLoaded: true,
+
+    async init() { /* Nada para carregar - 100% JavaScript puro! */ },
+
+    async scanAndRead(sourceElement, gabarito) {
+        const numQ = gabarito.questoes ? gabarito.questoes.length : 20;
+
+        // 1. Capturar frame para Canvas
+        const MAX_W = 1200;
+        const canvas = document.createElement('canvas');
+        const origW = sourceElement.videoWidth || sourceElement.width || 1280;
+        const origH = sourceElement.videoHeight || sourceElement.height || 720;
+        const sc = origW > MAX_W ? MAX_W / origW : 1;
+
+        canvas.width = Math.round(origW * sc);
+        canvas.height = Math.round(origH * sc);
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(sourceElement, 0, 0, canvas.width, canvas.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const { width: W, height: H } = imageData;
+
+        // 2. QR Code (informativo)
+        let qrDict = null;
+        try {
+            const code = jsQR(imageData.data, W, H, { inversionAttempts: "dontInvert" });
+            if (code && code.data) { try { qrDict = JSON.parse(code.data); } catch (e) { /* ok */ } }
+        } catch (e) { /* ok */ }
+
+        // 3. Grayscale + Threshold
+        const gray = toGrayscale(imageData.data, W * H);
+        const binary = adaptiveThreshold(gray, W, H, 41, 10);
+
+        // 4. Achar âncoras
+        const anchors = findAnchors(binary, W, H);
+        const trusted = !!(anchors.TL && anchors.TR && anchors.BL && anchors.BR);
+
+        // 5. Homografia
+        let Hmat;
+        if (trusted) {
+            Hmat = computeHomography(IDEAL_ANCHORS, [anchors.TL, anchors.TR, anchors.BR, anchors.BL]);
+        }
+        if (!Hmat) {
+            const px = W * 0.05, py = H * 0.05;
+            Hmat = computeHomography(IDEAL_ANCHORS, [
+                { x: px, y: py }, { x: W - px, y: py },
+                { x: W - px, y: H - py }, { x: px, y: H - py }
+            ]);
+        }
+
+        // 6. Escala de amostragem
+        const p1 = mapPt(Hmat, 0, 0), p2 = mapPt(Hmat, 10, 0);
+        const mmToPx = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2) / 10;
+        const sampleR = Math.max(3, Math.round(BL.bubbleR * mmToPx * 0.8));
+        const minFill = Math.PI * sampleR * sampleR * 0.12;
+
+        // 7. Ler bolinhas
+        const respostas = {};
+        const bubbleData = {};
+
+        for (let q = 1; q <= numQ; q++) {
+            const col = Math.floor((q - 1) / BL.qPerCol);
+            const row = (q - 1) % BL.qPerCol;
+            const yMM = BL.startY + row * BL.qSpacingY;
+            const xBase = BL.startX + col * BL.colSpacingX;
+
+            const scores = [];
+            for (let idx = 0; idx < OPTS.length; idx++) {
+                const bxMM = xBase + BL.optOffset + idx * BL.optSpacing;
+                const pt = mapPt(Hmat, bxMM, yMM);
+                const dark = sampleDark(binary, W, H, pt.x, pt.y, sampleR);
+                scores.push({ op: OPTS[idx], count: dark, pt });
+            }
+
+            scores.sort((a, b) => b.count - a.count);
+            const best = scores[0];
+
+            if (best.count > minFill) {
+                const second = scores[1];
+                respostas[q] = (second.count > best.count * 0.85) ? "Anulada" : best.op;
+            } else {
+                respostas[q] = "Branco";
+            }
+            bubbleData[q] = { scores, read: respostas[q] };
+        }
+
+        // 8. Debug image
+        let debugImageUrl = null;
+        try {
+            const dc = document.createElement('canvas');
+            dc.width = W; dc.height = H;
+            const dctx = dc.getContext('2d');
+            dctx.drawImage(canvas, 0, 0);
+
+            if (trusted) {
+                dctx.strokeStyle = '#00FF00'; dctx.lineWidth = 3;
+                for (const k of ['TL', 'TR', 'BL', 'BR']) {
+                    const a = anchors[k];
+                    dctx.strokeRect(a.x - 12, a.y - 12, 24, 24);
+                }
+            }
+
+            for (let q = 1; q <= numQ; q++) {
+                const bd = bubbleData[q];
+                const correct = gabarito.questoes[q - 1].correct;
+                const read = bd.read;
+
+                for (const s of bd.scores) {
+                    if (s.op !== read && read !== "Anulada") continue;
+                    let color;
+                    if (read === "Anulada") color = '#FFFF00';
+                    else if (read === "Branco") color = '#0088FF';
+                    else if (read === correct) color = '#00FF00';
+                    else color = '#FF0000';
+
+                    dctx.strokeStyle = color; dctx.lineWidth = 2;
+                    dctx.beginPath();
+                    dctx.arc(s.pt.x, s.pt.y, sampleR + 2, 0, Math.PI * 2);
+                    dctx.stroke();
+                }
+            }
+            debugImageUrl = dc.toDataURL('image/jpeg', 0.7);
+        } catch (e) { console.error('Debug img error:', e); }
+
+        // 9. Resultado final
+        const answers = gabarito.questoes.map(q => {
+            const read = respostas[q.id] || "Branco";
+            return { id: q.id, read, correct: q.correct, status: read === q.correct ? 'correct' : 'wrong' };
+        });
+
+        return {
+            answers,
+            totalQuestions: gabarito.questoes.length,
+            trustedArea: trusted,
+            debugImage: debugImageUrl,
+            qrCodeData: qrDict
+        };
     }
 };

@@ -38,7 +38,7 @@ const Scanner = ({ gabarito, onBack }) => {
         } catch (error) { console.error(error); }
     };
 
-    const [imageCapture, setImageCapture] = useState(null);
+
 
     const iniciarCamera = async () => {
         try {
@@ -77,15 +77,7 @@ const Scanner = ({ gabarito, onBack }) => {
 
             setStream(mediaStream);
 
-            // Setup ImageCapture se disponível (para fotos HD)
             const track = mediaStream.getVideoTracks()[0];
-            if ('ImageCapture' in window) {
-                try {
-                    const ic = new window.ImageCapture(track);
-                    setImageCapture(ic);
-                    console.log("ImageCapture API suportada!");
-                } catch (e) { console.error("Erro ao iniciar ImageCapture", e); }
-            }
 
             // Aplicar constraints avançadas na track se possível (Foco, Zoom, Torch)
             const capabilities = track.getCapabilities ? track.getCapabilities() : {};
@@ -226,7 +218,7 @@ const Scanner = ({ gabarito, onBack }) => {
                 {!cameraReady && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/90 text-white gap-4">
                         <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="font-medium animate-pulse">Iniciando IA OpenCV Local...</p>
+                        <p className="font-medium animate-pulse">Iniciando Motor de Correção...</p>
                     </div>
                 )}
 
